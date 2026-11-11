@@ -1,0 +1,27 @@
+data:
+  revision: 916dc27e77b90e294ea1b3a2cc5b0abcf07392d1
+  sha256: e9295f680bd6085362486c90c170bce243be7f85ed18074d6ba21cb75141ac78
+encoder:
+  name: BAAI/bge-small-en-v1.5
+  revision: 5c38ec7c405ec4b44b94cc5a9bb96e735b38267a
+  prefix: 'Represent this sentence for searching relevant passages: '
+  content_tokens: 510
+  stride: 384
+  batch_size: 16
+cross_encoder:
+  name: cross-encoder/ms-marco-MiniLM-L6-v2
+  revision: 233902d25c440f23af6f7d6e94d2946bac0bee0a
+retrieval:
+  top_k: 100
+  rrf_grid: [10, 30, 60, 100]
+  rerank_grid: [20, 50, 100]
+  windows_per_passage: 2
+training:
+  seed: 42
+  neural_fraction: 0.75
+  catboost_trials: 50
+serving:
+  context: 8192
+  thinking_budget: 512
+  max_tokens: 1024
+  top_k: 5
