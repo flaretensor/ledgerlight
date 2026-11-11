@@ -127,3 +127,124 @@ stages:
       md5: 3ce22049622fdd1b6a18075ddbe9eae9.dir
       size: 20734477
       nfiles: 3
+  train:
+    cmd: python -m ledgerlight.training
+    deps:
+    - path: data/baselines
+      hash: md5
+      md5: 3ce22049622fdd1b6a18075ddbe9eae9.dir
+      size: 20734477
+      nfiles: 3
+    - path: data/processed
+      hash: md5
+      md5: 5f5d6ab1e02196b75450da8e346212fe.dir
+      size: 19752451
+      nfiles: 5
+    - path: indices/base
+      hash: md5
+      md5: cc8f67ef9ba7a33d6e51fa4b1c4a7ebf.dir
+      size: 91760514
+      nfiles: 6
+    - path: indices/bm25
+      hash: md5
+      md5: 2a0f090f6e5732fef9998268f452801a.dir
+      size: 32806106
+      nfiles: 7
+    - path: src/ledgerlight/features.py
+      hash: md5
+      md5: 6c78c55509ecd3948a859940a1efad02
+      size: 1810
+    - path: src/ledgerlight/training.py
+      hash: md5
+      md5: 4f7b4678121edd97df9313c9977b024a
+      size: 27636
+    params:
+      params.yaml:
+        training:
+          seed: 42
+          neural_fraction: 0.75
+          catboost_trials: 50
+    outs:
+    - path: data/training
+      hash: md5
+      md5: 1334fc188d8d8dddda47fc41612bf3cf.dir
+      size: 10516329
+      nfiles: 18
+    - path: indices/trained
+      hash: md5
+      md5: 13a520c8b8261e2e5cf0377442d06792.dir
+      size: 43654281
+      nfiles: 5
+    - path: models/cross_encoder
+      hash: md5
+      md5: 7cad054b52a5464dc37b5c2a53d050ea.dir
+      size: 734498664
+      nfiles: 48
+    - path: models/encoder
+      hash: md5
+      md5: bc39fdb5be7fb3a41bfcd0c9527d206d.dir
+      size: 1209680163
+      nfiles: 90
+    - path: models/ltr
+      hash: md5
+      md5: 6b97bdbba5515e111b6d51bd0f5ea885.dir
+      size: 17663184
+      nfiles: 52
+  evaluate:
+    cmd: python -m ledgerlight.final_evaluation
+    deps:
+    - path: data/baselines
+      hash: md5
+      md5: 3ce22049622fdd1b6a18075ddbe9eae9.dir
+      size: 20734477
+      nfiles: 3
+    - path: data/training
+      hash: md5
+      md5: 1334fc188d8d8dddda47fc41612bf3cf.dir
+      size: 10516329
+      nfiles: 18
+    - path: indices/base
+      hash: md5
+      md5: cc8f67ef9ba7a33d6e51fa4b1c4a7ebf.dir
+      size: 91760514
+      nfiles: 6
+    - path: indices/bm25
+      hash: md5
+      md5: 2a0f090f6e5732fef9998268f452801a.dir
+      size: 32806106
+      nfiles: 7
+    - path: indices/trained
+      hash: md5
+      md5: 13a520c8b8261e2e5cf0377442d06792.dir
+      size: 43654281
+      nfiles: 5
+    - path: models/cross_encoder
+      hash: md5
+      md5: 7cad054b52a5464dc37b5c2a53d050ea.dir
+      size: 734498664
+      nfiles: 48
+    - path: models/encoder
+      hash: md5
+      md5: bc39fdb5be7fb3a41bfcd0c9527d206d.dir
+      size: 1209680163
+      nfiles: 90
+    - path: models/ltr
+      hash: md5
+      md5: 6b97bdbba5515e111b6d51bd0f5ea885.dir
+      size: 17663184
+      nfiles: 52
+    - path: src/ledgerlight/final_evaluation.py
+      hash: md5
+      md5: 60e8525de7c4aa5e5812d25bfd0e8b49
+      size: 9794
+    outs:
+    - path: data/evaluation
+      hash: md5
+      md5: aa6813c1f04f2df44f4df0ea7652cb49.dir
+      size: 31423613
+      nfiles: 4
+    - path: models/production
+      hash: md5
+      md5: 42a94f03b0d9b13fcd1748b08f467ee0.dir
+      size: 380
+      nfiles: 1

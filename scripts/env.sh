@@ -22,3 +22,13 @@ export PYTHONUNBUFFERED=1
 export PATH="$LEDGERLIGHT_ROOT/.venv/bin:."
 export DVC_NO_ANALYTICS=true
 export MLFLOW_DISABLE_TELEMETRY=true
+export TORCH_HOME="$LEDGERLIGHT_ROOT/.cache/torch"
+export TORCH_EXTENSIONS_DIR="$LEDGERLIGHT_ROOT/.cache/torch-extensions"
+export TRITON_CACHE_DIR="$LEDGERLIGHT_ROOT/.cache/triton"
+export CUDA_CACHE_PATH="$LEDGERLIGHT_ROOT/.cache/cuda"
+export NUMBA_CACHE_DIR="$LEDGERLIGHT_ROOT/.cache/numba"
+export MPLCONFIGDIR="$LEDGERLIGHT_ROOT/.cache/matplotlib"
+export TMPDIR="$LEDGERLIGHT_ROOT/.tmp"
+export PGPASSFILE="$LEDGERLIGHT_ROOT/.runtime/pgpass"
+mkdir -p "$LEDGERLIGHT_ROOT/.tmp" "$LEDGERLIGHT_ROOT/.cache/cuda"
+export PLAYWRIGHT_BROWSERS_PATH="$LEDGERLIGHT_ROOT/.cache/playwright"

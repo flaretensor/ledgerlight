@@ -47,3 +47,42 @@ stages:
     outs:
     - data/baselines:
         persist: true
+  train:
+    cmd: python -m ledgerlight.training
+    deps:
+    - data/processed
+    - data/baselines
+    - indices/bm25
+    - indices/base
+    - src/ledgerlight/training.py
+    - src/ledgerlight/features.py
+    params:
+    - training
+    outs:
+    - data/training:
+        persist: true
+    - models/encoder:
+        persist: true
+    - models/cross_encoder:
+        persist: true
+    - models/ltr:
+        persist: true
+    - indices/trained:
+        persist: true
+  evaluate:
+    cmd: python -m ledgerlight.final_evaluation
+    deps:
+    - data/training
+    - data/baselines
+    - indices/bm25
+    - indices/base
+    - indices/trained
+    - models/encoder
+    - models/cross_encoder
+    - models/ltr
+    - src/ledgerlight/final_evaluation.py
+    outs:
+    - data/evaluation:
+        persist: true
+    - models/production:
+        persist: true
