@@ -1,0 +1,129 @@
+schema: '2.0'
+stages:
+  ingest:
+    cmd: python -m ledgerlight.data ingest
+    deps:
+    - path: src/ledgerlight/data.py
+      hash: md5
+      md5: f72854cc0c6a6d6688e74ffff6c0535c
+      size: 6116
+    params:
+      params.yaml:
+        data:
+          revision: 916dc27e77b90e294ea1b3a2cc5b0abcf07392d1
+          sha256: 
+            e9295f680bd6085362486c90c170bce243be7f85ed18074d6ba21cb75141ac78
+    outs:
+    - path: data/raw
+      hash: md5
+      md5: 7b3b4d5b3133df183677c35ef0d80c18.dir
+      size: 34490486
+      nfiles: 3
+  validate:
+    cmd: python -m ledgerlight.data validate
+    deps:
+    - path: data/raw
+      hash: md5
+      md5: 7b3b4d5b3133df183677c35ef0d80c18.dir
+      size: 34490486
+      nfiles: 3
+    - path: src/ledgerlight/data.py
+      hash: md5
+      md5: f72854cc0c6a6d6688e74ffff6c0535c
+      size: 6116
+    outs:
+    - path: data/processed
+      hash: md5
+      md5: 5f5d6ab1e02196b75450da8e346212fe.dir
+      size: 19752451
+      nfiles: 5
+  index_bm25:
+    cmd: python -m ledgerlight.retrieval index_bm25
+    deps:
+    - path: data/processed
+      hash: md5
+      md5: 5f5d6ab1e02196b75450da8e346212fe.dir
+      size: 19752451
+      nfiles: 5
+    - path: src/ledgerlight/retrieval.py
+      hash: md5
+      md5: f321db2bd3e8ae1abf26e42eab503456
+      size: 6585
+    outs:
+    - path: indices/bm25
+      hash: md5
+      md5: 2a0f090f6e5732fef9998268f452801a.dir
+      size: 32806106
+      nfiles: 7
+  embed:
+    cmd: python -m ledgerlight.retrieval embed
+    deps:
+    - path: data/processed
+      hash: md5
+      md5: 5f5d6ab1e02196b75450da8e346212fe.dir
+      size: 19752451
+      nfiles: 5
+    - path: src/ledgerlight/retrieval.py
+      hash: md5
+      md5: f321db2bd3e8ae1abf26e42eab503456
+      size: 6585
+    params:
+      params.yaml:
+        encoder:
+          name: BAAI/bge-small-en-v1.5
+          revision: 5c38ec7c405ec4b44b94cc5a9bb96e735b38267a
+          prefix: 'Represent this sentence for searching relevant passages: '
+          content_tokens: 510
+          stride: 384
+          batch_size: 16
+    outs:
+    - path: indices/base
+      hash: md5
+      md5: cc8f67ef9ba7a33d6e51fa4b1c4a7ebf.dir
+      size: 91760514
+      nfiles: 6
+  baselines:
+    cmd: python -m ledgerlight.evaluation
+    deps:
+    - path: data/processed
+      hash: md5
+      md5: 5f5d6ab1e02196b75450da8e346212fe.dir
+      size: 19752451
+      nfiles: 5
+    - path: indices/base
+      hash: md5
+      md5: cc8f67ef9ba7a33d6e51fa4b1c4a7ebf.dir
+      size: 91760514
+      nfiles: 6
+    - path: indices/bm25
+      hash: md5
+      md5: 2a0f090f6e5732fef9998268f452801a.dir
+      size: 32806106
+      nfiles: 7
+    - path: src/ledgerlight/evaluation.py
+      hash: md5
+      md5: 402f2e878bf34035b6c1b9936860030a
+      size: 6115
+    params:
+      params.yaml:
+        cross_encoder:
+          name: cross-encoder/ms-marco-MiniLM-L6-v2
+          revision: 233902d25c440f23af6f7d6e94d2946bac0bee0a
+        retrieval:
+          top_k: 100
+          rrf_grid:
+          - 10
+          - 30
+          - 60
+          - 100
+          rerank_grid:
+          - 20
+          - 50
+          - 100
+          windows_per_passage: 1
+    outs:
+    - path: data/baselines
+      hash: md5
+      md5: 3ce22049622fdd1b6a18075ddbe9eae9.dir
+      size: 20734477
+      nfiles: 3

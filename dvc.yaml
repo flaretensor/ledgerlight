@@ -1,0 +1,49 @@
+stages:
+  ingest:
+    cmd: python -m ledgerlight.data ingest
+    deps:
+    - src/ledgerlight/data.py
+    params:
+    - data
+    outs:
+    - data/raw:
+        persist: true
+  validate:
+    cmd: python -m ledgerlight.data validate
+    deps:
+    - data/raw
+    - src/ledgerlight/data.py
+    outs:
+    - data/processed:
+        persist: true
+  index_bm25:
+    cmd: python -m ledgerlight.retrieval index_bm25
+    deps:
+    - data/processed
+    - src/ledgerlight/retrieval.py
+    outs:
+    - indices/bm25:
+        persist: true
+  embed:
+    cmd: python -m ledgerlight.retrieval embed
+    deps:
+    - data/processed
+    - src/ledgerlight/retrieval.py
+    params:
+    - encoder
+    outs:
+    - indices/base:
+        persist: true
+  baselines:
+    cmd: python -m ledgerlight.evaluation
+    deps:
+    - data/processed
+    - indices/bm25
+    - indices/base
+    - src/ledgerlight/evaluation.py
+    params:
+    - retrieval
+    - cross_encoder
+    outs:
+    - data/baselines:
+        persist: true

@@ -15,7 +15,7 @@ retrieval:
   top_k: 100
   rrf_grid: [10, 30, 60, 100]
   rerank_grid: [20, 50, 100]
-  windows_per_passage: 2
+  windows_per_passage: 1
 training:
   seed: 42
   neural_fraction: 0.75
