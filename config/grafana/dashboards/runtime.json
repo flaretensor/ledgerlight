@@ -1,0 +1,329 @@
+{
+  "uid": "ledgerlight-runtime",
+  "title": "Ledgerlight runtime",
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": false,
+  "timezone": "browser",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "refresh": "5s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Gateway requests / second",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ledgerlight-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(ledgerlight_requests_total{service=\"gateway\"}[1m]))",
+          "refId": "A",
+          "legendFormat": "{{stage}}{{service}}{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Errors / second",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ledgerlight-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (service) (rate(ledgerlight_errors_total[1m]))",
+          "refId": "A",
+          "legendFormat": "{{stage}}{{service}}{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Abstention share",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ledgerlight-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(ledgerlight_abstentions_total[5m])) / clamp_min(sum(rate(ledgerlight_requests_total{service=\"gateway\"}[5m])), 0.000001)",
+          "refId": "A",
+          "legendFormat": "{{stage}}{{service}}{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "End-to-end latency p50 / p95",
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ledgerlight-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ledgerlight_stage_seconds_bucket{service=\"gateway\",stage=\"e2e\"}[5m])))",
+          "refId": "A",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(ledgerlight_stage_seconds_bucket{service=\"gateway\",stage=\"e2e\"}[5m])))",
+          "refId": "B",
+          "legendFormat": "p50"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Gateway stages p95",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ledgerlight-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le,stage) (rate(ledgerlight_stage_seconds_bucket{service=\"gateway\"}[5m])))",
+          "refId": "A",
+          "legendFormat": "{{stage}}{{service}}{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Retrieval stages p95",
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ledgerlight-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le,stage) (rate(ledgerlight_stage_seconds_bucket{service=\"retrieval\"}[5m])))",
+          "refId": "A",
+          "legendFormat": "{{stage}}{{service}}{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Process resident memory",
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ledgerlight-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "process_resident_memory_bytes{job=~\"gateway|retrieval|qdrant|llama\"}",
+          "refId": "A",
+          "legendFormat": "{{stage}}{{service}}{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "GPU memory used",
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ledgerlight-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "ledgerlight_gpu_memory_used_bytes",
+          "refId": "A",
+          "legendFormat": "{{stage}}{{service}}{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Scrape availability",
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ledgerlight-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "up{job=~\"gateway|retrieval|qdrant|llama|triton\"}",
+          "refId": "A",
+          "legendFormat": "{{stage}}{{service}}{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    }
+  ],
+  "tags": [
+    "ledgerlight"
+  ]
+}

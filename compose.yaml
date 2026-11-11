@@ -1,0 +1,151 @@
+name: ledgerlight
+x-app: &app
+  image: ledgerlight-app:local
+  build: .
+  user: "1000:1000"
+  working_dir: /workspace
+  network_mode: host
+  restart: "no"
+  env_file: .env
+  environment: &app-env
+    LEDGERLIGHT_ROOT: /workspace
+    MLFLOW_TRACKING_URI: http://127.0.0.1:5000
+    HF_HOME: /workspace/.cache/huggingface
+    HF_HUB_DISABLE_TELEMETRY: "1"
+    HF_HUB_DISABLE_XET: "1"
+    XDG_CACHE_HOME: /workspace/.cache
+    CUDA_CACHE_PATH: /workspace/.cache/cuda
+    TORCH_HOME: /workspace/.cache/torch
+    TRITON_CACHE_DIR: /workspace/.cache/triton
+    NUMBA_CACHE_DIR: /workspace/.cache/numba
+    TMPDIR: /workspace/.tmp
+    STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+    MLFLOW_DISABLE_TELEMETRY: "true"
+    DO_NOT_TRACK: "1"
+    OMP_NUM_THREADS: "8"
+    MKL_NUM_THREADS: "8"
+    OPENBLAS_NUM_THREADS: "8"
+    TOKENIZERS_PARALLELISM: "false"
+    LEDGERLIGHT_BACKEND: ${LEDGERLIGHT_BACKEND:-torch}
+  volumes:
+    - .:/workspace
+services:
+  postgres:
+    image: pgvector/pgvector:pg18
+    user: "1000:1000"
+    network_mode: host
+    restart: "no"
+    env_file: .env
+    environment:
+      PGDATA: /var/lib/postgresql/18/docker
+      TMPDIR: /var/lib/postgresql/18/docker
+    command: ["postgres", "-p", "5433", "-c", "listen_addresses=127.0.0.1", "-c", "unix_socket_directories=/var/lib/postgresql/18/docker"]
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/18/docker
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5433 -U ledgerlight"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  mlflow:
+    <<: *app
+    command: ["python", "scripts/container_service.py", "mlflow"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://127.0.0.1:5000/health').raise_for_status()"]
+      interval: 5s
+      timeout: 4s
+      retries: 36
+  qdrant:
+    image: qdrant/qdrant:v1.20.0
+    network_mode: host
+    user: "1000:1000"
+    restart: "no"
+    working_dir: /workspace
+    entrypoint: ["/qdrant/qdrant"]
+    command: ["--config-path", "/workspace/config/qdrant.yaml"]
+    environment:
+      QDRANT__TELEMETRY_DISABLED: "true"
+      TMPDIR: /workspace/.tmp
+    volumes:
+      - .:/workspace
+  llama:
+    <<: *app
+    gpus: all
+    command: ["python", "scripts/container_service.py", "llama"]
+    depends_on:
+      retrieval:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://127.0.0.1:8091/health').raise_for_status()"]
+      interval: 5s
+      timeout: 4s
+      retries: 60
+  retrieval:
+    <<: *app
+    gpus: all
+    command: ["python", "scripts/container_service.py", "retrieval"]
+    depends_on:
+      mlflow:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://127.0.0.1:8001/health', timeout=15).raise_for_status()"]
+      interval: 10s
+      timeout: 20s
+      retries: 60
+      start_period: 30s
+  gateway:
+    <<: *app
+    command: ["python", "-m", "uvicorn", "ledgerlight.gateway:app", "--host", "127.0.0.1", "--port", "8000"]
+    depends_on:
+      retrieval:
+        condition: service_healthy
+      llama:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://127.0.0.1:8000/health', timeout=15).raise_for_status()"]
+      interval: 10s
+      timeout: 20s
+      retries: 30
+  ui:
+    <<: *app
+    command: ["python", "-m", "streamlit", "run", "src/ledgerlight/ui.py", "--server.address", "127.0.0.1", "--server.port", "8501", "--browser.gatherUsageStats", "false"]
+    depends_on:
+      gateway:
+        condition: service_healthy
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    network_mode: host
+    user: "1000:1000"
+    restart: "no"
+    environment:
+      TMPDIR: /workspace/.tmp
+    command: ["--config.file=/workspace/config/prometheus.yaml", "--storage.tsdb.path=/workspace/data/prometheus", "--web.listen-address=127.0.0.1:9090"]
+    volumes:
+      - .:/workspace
+  grafana:
+    image: grafana/grafana:13.3.1
+    network_mode: host
+    user: "1000:1000"
+    restart: "no"
+    env_file: .env
+    environment:
+      LEDGERLIGHT_ROOT: /workspace
+      GF_SERVER_HTTP_ADDR: 127.0.0.1
+      GF_SERVER_HTTP_PORT: "3000"
+      GF_SECURITY_ADMIN_USER: ledgerlight
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+      GF_PATHS_CONFIG: /workspace/config/grafana.ini
+      GF_PATHS_DATA: /workspace/data/grafana
+      GF_PATHS_LOGS: /workspace/logs/grafana
+      GF_PATHS_PLUGINS: /workspace/.cache/grafana-plugins
+      GF_PATHS_PROVISIONING: /workspace/config/grafana/provisioning
+      TMPDIR: /workspace/.tmp
+    volumes:
+      - .:/workspace

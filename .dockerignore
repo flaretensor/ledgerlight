@@ -1,0 +1,14 @@
+.git
+.venv
+.python
+.cache
+.tools
+.tmp
+.env
+.runtime
+data
+models
+indices
+mlruns
+logs
+.dvc/cache

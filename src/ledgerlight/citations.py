@@ -1,0 +1,55 @@
+import re
+import secrets
+
+ABSTENTION = "not found in sources"
+MARKER = re.compile(r"\[\[SRC_[A-Za-z0-9_]+\]\]")
+URL_OR_HTML = re.compile(
+    r"[A-Za-z][A-Za-z0-9+.-]*://|(?:mailto|javascript|data|tel):|www\.|\[[^\]]+\]\([^)]*\)|<\s*/?\s*[A-Za-z][^>]*>",
+    re.I,
+)
+
+
+def issue(results):
+    issued = {}
+    all_text = "\n".join(w for item in results for w in item["windows"])
+    for item in results:
+        while True:
+            marker = "[[SRC_" + secrets.token_hex(12) + "]]"
+            if marker not in all_text and marker not in issued:
+                break
+        issued[marker] = item
+    return issued
+
+
+def render(answer, issued):
+    answer = re.sub(r"<think>.*?</think>", "", answer, flags=re.S | re.I).strip()
+    if "<think>" in answer.casefold() or "</think>" in answer.casefold():
+        return ABSTENTION, []
+    if URL_OR_HTML.search(answer):
+        return ABSTENTION, []
+    markers = MARKER.findall(answer)
+    if not markers or any(marker not in issued for marker in markers):
+        return ABSTENTION, []
+    if "[[SRC_" in MARKER.sub("", answer):
+        return ABSTENTION, []
+    if re.search(r"\[\d+\]", answer):
+        return ABSTENTION, []
+    citations, mapping = [], {}
+    for marker in markers:
+        if marker not in mapping:
+            number = len(citations) + 1
+            mapping[marker] = number
+            item = issued[marker]
+            citations.append(
+                {
+                    "number": number,
+                    "passage_id": item["passage_id"],
+                    "sources": item["sources"],
+                    "windows": item["windows"],
+                    "text": item["text"],
+                }
+            )
+    answer = MARKER.sub(lambda m: f"[{mapping[m.group(0)]}]", answer)
+    if ABSTENTION in answer.casefold():
+        return ABSTENTION, []
+    return answer, citations

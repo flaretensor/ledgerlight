@@ -1,0 +1,10 @@
+apiVersion: 1
+providers:
+  - name: Ledgerlight
+    orgId: 1
+    folder: Ledgerlight
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 10
+    options:
+      path: ${LEDGERLIGHT_ROOT}/config/grafana/dashboards
