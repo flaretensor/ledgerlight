@@ -1,0 +1,17 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    env:
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      DVC_NO_ANALYTICS: "true"
+      DO_NOT_TRACK: "1"
+      CUDA_VISIBLE_DEVICES: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.7"
+      - run: bash -c 'source scripts/env.sh && uv sync --frozen'
+      - run: bash scripts/ci.sh
