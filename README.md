@@ -1,8 +1,15 @@
 # Ledgerlight
 
-Ledgerlight answers English finance questions using a curated FinRank passage pool, hybrid retrieval, learned reranking, and a local Qwen model. Answers contain request-issued citations with ticker, form, year, and page, or `Not found in sources.` The Streamlit interface provides Ask, expandable Sources, Ranking Trace, and ticker/year/form filters.
+Ledgerlight is a local English finance-document RAG application: hybrid passage retrieval, learned reranking, and Qwen answers with numbered citations. Ask questions in Streamlit, inspect expandable sources and the ranking trace, and filter by ticker, year, and filing form. Unsupported or invalidly cited output becomes `Not found in sources.`
 
-The verified local champion is pipeline **7**: tuned BGE-small, tuned MiniLM cross-encoder, and CatBoost YetiRank. Both the frozen TEST retrieval ladder and the 119-question citation proxy run used the **Torch pipeline**. Current serving uses **ORT CUDA, validated on DEV only**; TEST results must not be attributed to ORT. All services use loopback addresses and manual lifecycle commands. The completed stack is left stopped, with persisted stores intact.
+**Results at a glance**
+
+- Frozen Torch TEST nDCG@10: BM25 **22.79% → CatBoost 34.92%**, **+12.13 pp**, paired-bootstrap 95% CI **[6.71, 17.65]**.
+- Official evaluation: **119 TEST / 118 DEV** questions in a known-document/new-query setting.
+- Configuration selection compared many candidates on DEV; those DEV results are optimistically biased by selection.
+- Live serving uses **ORT CUDA validated on DEV only**; neither the frozen TEST ladder nor its 119-question citation proxies measure ORT serving.
+
+![DEV question, cited answer, and expandable sources](docs/ui-example.png)
 
 ## Architecture
 
@@ -11,32 +18,32 @@ flowchart LR
     U[Streamlit] --> G[FastAPI gateway]
     G --> R[Retrieval service]
     R --> B[BM25s]
-    R --> Q[Qdrant window vectors]
+    R --> Q[Qdrant windows]
     B --> F[RRF top 100]
     Q --> F
-    F --> C[MiniLM cross-encoder]
+    F --> C[MiniLM CE]
     C --> L[CatBoost top 5]
     L --> G
     G --> A[llama.cpp / Qwen]
     A --> V[Citation validation]
     V --> U
     G --> P[PostgreSQL request log]
-    M[MLflow aliases and artifacts] --> R
-    D[DVC pipeline and local cache] --> B
+    M[MLflow aliases / artifacts] --> R
+    D[DVC pipeline / local cache] --> B
     D --> Q
     O[Prometheus / Grafana] --> G
     O --> R
 ```
 
-Retrieval groups window hits by passage, using maximum window cosine. Production Qdrant queries retain exact search. Filters must match one provenance record; a ticker from one source cannot combine with a year from another. Query-time input accepts question text and optional user filters only. Registered manifests resolve component weights from MLflow; versioned Qdrant collections retain both encoder versions and `ledgerlight-active` points to encoder 2.
+Window hits are grouped by passage using maximum cosine similarity. Production Qdrant retrieval remains exact. Filters match one provenance record, so a ticker from one source cannot combine with a year from another. The query contract accepts question text and optional filters; labels and gold answers are unavailable to serving.
 
-The gateway serializes GPU answer requests, logs candidates, stage scores, answer, citations, timings, versions, and failures to PostgreSQL, and rejects unissued citation markers, generated URLs, HTML, and uncited output. Citation validation is mechanical; it does not establish that a cited passage supports every generated claim.
+The gateway serializes generation, supplies the best window of each of five passages, issues per-request source markers, and logs candidates, scores, answers, citations, timings, versions, and failures to PostgreSQL. Citation rendering rejects unissued markers, generated URLs, HTML, and uncited output. Marker membership is not entailment or a guarantee that a citation supports every claim.
 
-Triton runs in a separate, isolated profile for ONNX dynamic-batching experiments. It is verified but is not in the application's request path. Never run Triton or a GPU benchmark alongside the application GPU services on this 4 GiB device.
+Triton is an isolated ONNX experiment, outside the RAG request path. On a 4 GiB GPU, stop application GPU services before benchmarks or Triton.
 
-## Start and stop
+## Run locally
 
-Run commands from the repository root in Bash. The existing environment, local model artifacts, database, and Qdrant stores are retained.
+Prerequisites are Docker with NVIDIA container access, uv, and the retained local artifacts or a separately reproduced workspace. Run commands from the repository root in Bash. All application ports bind to loopback; Compose uses `restart: "no"` and no autostart.
 
 ```bash
 source scripts/env.sh
@@ -46,29 +53,16 @@ ledgerlight ask "(example question omitted)"
 ledgerlight stop
 ```
 
-`ledgerlight start` invokes Compose, builds the local application image when needed, and waits for gateway and UI health. `ledgerlight stop` sends SIGTERM to the application and optional Triton profile, waits up to 60 seconds for exit, then stops PostgreSQL last in the same way. It never escalates to SIGKILL. It preserves containers, bind-mounted data, images, and caches. Every Compose service uses `restart: "no"`; none starts automatically after reboot.
+`start` builds the local application image as needed and waits for gateway/UI health. `stop` sends SIGTERM, waits up to 60 seconds without sending SIGKILL, and stops PostgreSQL last. It preserves data, volumes, containers, images, and caches.
 
-| Service | Local address |
-|---|---|
-| Streamlit | http://127.0.0.1:8501 |
-| Gateway / health / API schema | http://127.0.0.1:8000/health , http://127.0.0.1:8000/docs |
-| Retrieval | http://127.0.0.1:8001/health |
-| MLflow | http://127.0.0.1:5000 |
-| Qdrant | http://127.0.0.1:6333 |
-| llama.cpp | http://127.0.0.1:8091/health |
-| Prometheus | http://127.0.0.1:9090 |
-| Grafana | http://127.0.0.1:3000/d/ledgerlight-runtime/ledgerlight-runtime |
-| PostgreSQL | 127.0.0.1:5433 |
-| Optional isolated Triton | HTTP 127.0.0.1:8002, gRPC 127.0.0.1:8003, metrics 127.0.0.1:8004 |
-
-After a cold reboot, the user must check the data SSD mount and manually start Docker. The `sudo systemctl start docker` command below is a **user-executed host command requiring administrative privileges**; the application and project scripts do not execute it. Do not start Docker against an unmounted data path. Continue with the project services only after Docker and the NVIDIA device are available.
+After a cold reboot, check the data mount before starting Docker. You start Docker with the host administrator command below; project scripts do not manage the daemon.
 
 ```bash
 findmnt .
 sudo systemctl start docker
+source scripts/env.sh
 docker info --format '{{.DockerRootDir}}'
 nvidia-smi
-source scripts/env.sh
 docker compose up -d --wait postgres
 docker compose exec -T postgres pg_isready -h 127.0.0.1 -p 5433 -U ledgerlight
 docker compose up -d --wait mlflow qdrant prometheus grafana
@@ -78,70 +72,62 @@ ledgerlight start
 ledgerlight health
 ```
 
-Wait for readiness before proceeding if either health command initially fails. The recovered host uses Docker data-root `./docker/engine`; GPU access inside Compose was verified live. This project does not install host packages, alter the Docker daemon, or manage system services.
+PostgreSQL listens on **5433 inside and outside the container**. If the mount or daemon checks fail, resolve host readiness before starting project services. Persistent store identifiers retain their original names; see [build notes](docs/BUILD_LOG.md#internal-identifiers-kept-for-store-continuity).
 
-For a separate fresh workspace with the required Docker/GPU setup, `bash scripts/bootstrap.sh` creates the Python 3.12 uv environment and a private generated `.env`, starts tracking, fetches pinned service/model artifacts, reproduces through evaluation, registers models, and starts the application. This can involve downloads and training; it is not the restart command for the completed workspace. The fresh all-in-one bootstrap was not rerun during recovery. Do not copy placeholder passwords from `.env.example` into a populated database.
+| Service | Loopback address |
+|---|---|
+| UI | http://127.0.0.1:8501 |
+| Gateway / schema | http://127.0.0.1:8000/health , http://127.0.0.1:8000/docs |
+| Retrieval | http://127.0.0.1:8001/health |
+| MLflow | http://127.0.0.1:5000 |
+| PostgreSQL | 127.0.0.1:5433 |
+| Qdrant | http://127.0.0.1:6333 |
+| llama.cpp | http://127.0.0.1:8091/health |
+| Prometheus | http://127.0.0.1:9090 |
+| Grafana | http://127.0.0.1:3000/d/ledgerlight-runtime/ledgerlight-runtime |
+| Optional Triton | HTTP 8002, gRPC 8003, metrics 8004 on 127.0.0.1 |
 
-## Data, acquisition, and reproducibility
+## Data and reproduction
 
-FinRank is acquired from [datanxt/FinRank](https://github.com/datanxt/FinRank/tree/916dc27e77b90e294ea1b3a2cc5b0abcf07392d1), pinned at `916dc27e77b90e294ea1b3a2cc5b0abcf07392d1`. `FinRank.jsonl` is 34,129,228 bytes with SHA256 `e9295f680bd6085362486c90c170bce243be7f85ed18074d6ba21cb75141ac78`. Acquisition checks the digest. The upstream dataset is **CC BY-NC 4.0**; passages and weights are not bundled in Git. There is no configured DVC remote or Git remote. Existing DVC objects remain in the local cache; a fresh clone alone cannot recover unpublished local model artifacts.
+FinRank is acquired from [datanxt/FinRank at the pinned revision](https://github.com/datanxt/FinRank/tree/916dc27e77b90e294ea1b3a2cc5b0abcf07392d1). The dataset is **CC BY-NC 4.0 and not bundled in Git**. Acquisition verifies 34,129,228 bytes and SHA256 `e9295f680bd6085362486c90c170bce243be7f85ed18074d6ba21cb75141ac78`.
 
-The official random split contains 948 TRAIN, 118 DEV, and 119 TEST queries. The pool has 5,230 exact-text passages, 4,796 after whitespace normalization, 2,322 positive occurrences, and 6,021 hard-negative occurrences. Available citation metadata is ticker, year, form, and page. Full company names and source URLs are absent; the application does not invent them.
+The pool contains 1,185 queries and **5,230 exact-text passages**, 4,796 after whitespace normalization. It is not all of EDGAR or a complete filing archive. The official random split is 948 TRAIN / 118 DEV / 119 TEST. Available source fields are ticker, year, form, and page; full company names and source URLs are absent.
 
-Pandera validation enforces IDs, nonempty questions/passages, positives, split coverage/disjointness, and a query-only schema. Provenance is preserved: 174 passages have multiple source records and 46 span multiple document metadata combinations. There are 19 stored SHA1 mismatches under the documented stripped-text comparison. The 538 hard negatives positive for another question remain query-specific. Three normalized question strings repeat; **“(example question omitted)” occurs in TRAIN and TEST with different positives**. The official split was retained and this overlap is a limitation.
+A direct provenance recount finds **174 passages with multiple distinct (ticker, year, form, page) records**: 440 records across those passages, 5,496 records overall, and 266 records beyond one per passage. Within the pool, **46 passages** have multiple distinct (ticker, year, form) combinations. These are passage counts, not a claim that there are only 174 metadata combinations. [Recount and proxy calculations](reports/docs_facts.json) retain the units.
+
+Other known data quirks are preserved: 538 hard-negative occurrences match positives for other queries, 19 stored SHA1 mismatches under the stripped-text comparison, three repeated normalized question groups, and one question repeated across TRAIN and TEST with different positives. Negatives remain query-specific. This protocol measures known-document/new-query retrieval, not unseen-document transfer.
 
 ```bash
 source scripts/env.sh
-LEDGERLIGHT_RESUME=1 dvc repro evaluate
 dvc status
+LEDGERLIGHT_RESUME=1 dvc repro evaluate
 python scripts/leakage_check.py
 bash scripts/ci.sh
 ```
 
-The DVC DAG is ingest → validate → index_bm25 → embed → baselines → train → evaluate. On this completed workspace `dvc repro` reuses unchanged outputs and leaves clean status. The evaluator reuses existing frozen TEST metrics when the training fingerprint matches, and refuses changed training inputs. Never delete the frozen evaluation, force a new TEST evaluation, or use TEST feedback to tune the stack. New serving experiments use DEV and separate evidence files.
+The official DAG is ingest → validate → index_bm25 → embed → baselines → train → evaluate. Unchanged outputs are reused. The evaluator reuses the frozen TEST result when its training fingerprint matches and refuses changed training inputs. Preserve frozen outputs; new diagnostics belong in separate files. DVC lock metadata was refreshed during renaming without executing official stages or changing any of the 15 tracked output hashes.
 
-`uv.lock`, `params.yaml`, `services.lock.json`, `dvc.lock`, and DVC pointers capture dependencies, pins, and artifacts. All project caches and temporary paths are set inside the workspace by `scripts/env.sh`. `scripts/storage.sh STAGE` records both filesystems and enforces a 20 GiB free-space guard. Scripts do not perform global cleanup.
+For a fresh workspace, `bash scripts/bootstrap.sh` creates the environment and private `.env`, acquires pinned artifacts, reproduces the pipeline, registers models, and starts services. **This fresh bootstrap path has not been rerun end to end.** It includes substantial downloads and training; it is not a restart command. No DVC remote is configured, so a fresh Git checkout alone cannot retrieve unpublished local checkpoints. Caches and temporary paths are scoped by `scripts/env.sh`; the storage guard requires 20 GiB free on both filesystems.
 
-## Retrieval and training
+## Models and training
 
-BM25s uses Lucene IDF, k1=1.5, b=0.75, and lowercase `\w+` tokens. BGE-small uses the model-card query prefix, normalized CLS embeddings, 510 content tokens plus specials, stride 384, and 11,067 windows. RRF k=10 was selected from 10/30/60/100 on DEV. CE depth=50 was selected from 20/50/100; each passage uses its best dense window. The frozen LTR stage scores RRF top-100 candidates using CE features computed for that candidate pool.
+BGE uses normalized CLS embeddings, the model-card query prefix, 510 content tokens plus specials, stride 384, and 11,067 windows. BM25s uses Lucene IDF, k1=1.5, b=0.75, and lowercase `\w+` tokens. DEV selected RRF k=10 from 10/30/60/100 and CE depth 50 from 20/50/100. CE scores one best dense window per passage; CatBoost uses RRF top-100 candidates with CE features for that pool.
 
-| Component | Pin / selected configuration |
+| Component | Pin |
 |---|---|
-| BGE | `BAAI/bge-small-en-v1.5`, revision `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`; trial 2, lr 2.8231933e-5, one epoch, batch 32, scale 20, two negatives |
-| MiniLM CE | `cross-encoder/ms-marco-MiniLM-L6-v2`, revision `233902d25c440f23af6f7d6e94d2946bac0bee0a`; trial 3, lr 9.6359827e-6, two epochs, BF16 training, saved FP32 weights |
-| CatBoost | YetiRank trial 26, 500 iterations, depth 6, lr 0.1413028235, L2 1.4815751, CPU training |
-| Qwen | `unsloth/Qwen3.5-2B-GGUF`, revision `f6d5376be1edb4d416d56da11e5397a961aca8ae`; `Qwen3.5-2B-Q4_K_M.gguf`, SHA256 `aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223` |
-| llama.cpp | CUDA 12.8 build `b12284`, archive digest in `services.lock.json` |
+| BGE | `BAAI/bge-small-en-v1.5` @ `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a` |
+| CE | `cross-encoder/ms-marco-MiniLM-L6-v2` @ `233902d25c440f23af6f7d6e94d2946bac0bee0a` |
+| GGUF | `unsloth/Qwen3.5-2B-GGUF` @ `f6d5376be1edb4d416d56da11e5397a961aca8ae`, Q4_K_M |
+| GGUF digest | `aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223` |
+| llama.cpp | CUDA 12.8 build `b12284`; archive digest in `services.lock.json` |
 
-Training groups normalized questions into partition A (712 queries, neural models only) and B (236 queries, LTR only). BGE uses CachedMultipleNegativesRankingLoss with that query's positives, hard negatives, and mined nonpositives. CE uses supervised query/window pairs from A. Six BGE and six CE configurations completed; CatBoost ran 50 Optuna trials. Trials and seed runs are retained in PostgreSQL-backed MLflow. An interrupted BGE attempt remains KILLED/failed in its tracking records and was requeued with the same configuration.
+Normalized-question groups divide TRAIN into A (712 queries, neural training) and B (236 queries, LTR). Six BGE and six CE configurations completed; CatBoost used 50 Optuna trials. Selected configurations and seed results remain in DVC and PostgreSQL-backed MLflow. No personal annotation or LLM judge is used.
 
-The leakage audit checks the exact feature contract, poisoned-oracle invariance, partition membership, and 52 serialized CatBoost models. It found no forbidden feature. Labels are used for supervised targets and offline metrics only. The offline row helper constructs an unused target array, but prediction receives only features and group IDs; live serving never loads labels.
+The 14 LTR features are lexical/dense/RRF/CE scores and their four ranks; passage token length, window count, question word count; and ticker/year/form matches parsed from question text against passage metadata. No qrels, answers, train-positive popularity, or “was positive in training” priors enter query-time features. The leakage audit checks partition membership, serialized feature names, and poisoned-oracle invariance.
 
-| LTR feature | Query-time source |
-|---|---|
-| `bm25` | Question text and indexed passage text |
-| `dense` | Question embedding and maximum passage-window cosine |
-| `rrf` | Frozen fusion of lexical/dense ranks |
-| `ce` | Question and best dense passage window, raw CE logit |
-| `bm25_rank`, `dense_rank`, `rrf_rank`, `ce_rank` | Respective candidate score ordering with stable ties |
-| `passage_tokens`, `window_count` | Indexed passage/window offsets and count |
-| `query_tokens` | Word count from question text |
-| `ticker_match`, `year_match`, `form_match` | Values parsed from question text, compared with passage metadata |
+## Frozen Torch retrieval evaluation
 
-No feature uses qrels, gold answers, gold positives, train-positive popularity, or “was positive in training” priors. User filters restrict eligible sources; metadata matches do not consume dataset query annotations.
-
-Seed 42 was fixed for the frozen ladder; seeds 123 and 2026 quantify variance without choosing a seed on TEST.
-
-| Selected component | DEV nDCG@10 mean (%) | Range (%) |
-|---|---:|---:|
-| Tuned dense encoder | 31.2912 | 31.1443–31.4242 |
-| Tuned CE pipeline | 33.5046 | 32.4278–34.2250 |
-| CatBoost pipeline | 39.8239 | 39.1119–40.2641 |
-
-## Frozen retrieval evaluation
-
-All entries use published binary qrels and ranx metrics. Recall is the macro average of each question's fraction of labeled positives retrieved. Values below are percentages. **The choice among many candidates was made on only 118 DEV queries.** TEST was evaluated once for the entire frozen nine-entry ladder, before any serving/backend work.
+Both the nine-entry ladder and the 119-question citation proxy run used **Torch**. Subsequent ORT validation is DEV-only. Recall is macro-averaged labeled-positive recall per query; all values below are percentages.
 
 DEV, n=118:
 
@@ -151,7 +137,7 @@ DEV, n=118:
 | BGE | 39.19 | 51.20 | 72.95 | 25.38 | 27.73 |
 | RRF | 42.87 | 50.99 | 73.66 | 28.62 | 30.62 |
 | CE-zero | 41.45 | 54.66 | 73.66 | 28.32 | 31.36 |
-| BGE-ft | 43.50 | 55.51 | 81.29 | 29.48 | 32.42 |
+| BGE-ft+RRF+CE-zero | 43.50 | 55.51 | 81.29 | 29.48 | 32.42 |
 | CE-ft | 52.05 | 63.42 | 81.29 | 33.86 | 33.90 |
 | CatBoost | 59.39 | 69.99 | 81.29 | 40.26 | 42.85 |
 | BGE-ft-dense | 47.74 | 63.70 | 80.65 | 31.31 | 33.73 |
@@ -165,96 +151,61 @@ Frozen TEST, n=119:
 | BGE | 33.68 | 48.67 | 66.04 | 21.53 | 22.78 |
 | RRF | 42.93 | 53.29 | 70.31 | 25.37 | 24.54 |
 | CE-zero | 41.32 | 51.12 | 70.31 | 25.50 | 26.66 |
-| BGE-ft | 42.16 | 53.50 | 74.09 | 26.19 | 26.87 |
+| BGE-ft+RRF+CE-zero | 42.16 | 53.50 | 74.09 | 26.19 | 26.87 |
 | CE-ft | 48.25 | 57.84 | 74.09 | 28.47 | 26.52 |
 | CatBoost | 52.45 | 60.85 | 74.09 | 34.92 | 36.15 |
 | BGE-ft-dense | 47.13 | 55.46 | 74.09 | 28.87 | 29.03 |
 | RRF-ft | 46.99 | 60.50 | 74.09 | 29.78 | 30.12 |
 
-`BGE-ft` is the ladder stage with tuned BGE plus RRF plus zero-shot CE; `BGE-ft-dense` is the separate tuned dense-only alternative. `RRF-ft` uses the tuned encoder without CE. CatBoost won on DEV and remains champion regardless of TEST comparisons.
+`BGE-ft+RRF+CE-zero` is the ladder stage with tuned BGE, RRF, and zero-shot CE. `BGE-ft-dense` is the tuned dense-only alternative; `RRF-ft` omits CE. The stored frozen artifact labels remain unchanged.
 
-The paired query bootstrap, 10,000 resamples with seed 42, gives final-minus-BM25 nDCG@10 **+12.13 percentage points, 95% interval [6.71, 17.65]**. With 119 TEST queries this interval remains wide. The small-sample random split measures known-document/new-query performance, not transfer to unseen filings.
+CatBoost minus BM25 nDCG@10 is **+12.13 pp, paired-bootstrap 95% CI [6.71, 17.65]**, using 10,000 query resamples and seed 42. TEST n=119 leaves substantial uncertainty. Selection among many candidates on only 118 DEV questions makes DEV optimistic. **40.26% is the CatBoost seed-42 result and the maximum of three seeds; mean 39.82%, range 39.11–40.26%.**
 
-Negative results are retained: zero-shot CE was below RRF on DEV, and also reduced the tuned-RRF result. Tuned CE improved its direct zero-shot predecessor, but its frozen TEST nDCG was below the tuned dense/RRF alternatives; no post-TEST selection change followed. A single DEV diagnostic reproduced the earlier rank-bm25 reference; canonical BM25s recall differed because of the BM25/IDF variant. BGE matched the earlier windowed reference to within 0.02 percentage points on DEV. No extra TEST diagnostic was run.
+The learned-reranker entries share **TEST R@100 74.09% / DEV R@100 81.29%**. Roughly a quarter of labeled positives per TEST question never reach these rerankers on average; reranking cannot recover missing candidates.
 
-Exact results and per-query tables are in `data/evaluation/metrics.json`, `per_query.json`, and the MLflow `frozen-ladder` run. The metrics file SHA256 remains `8895f568f18193c998f050ea39c2c297eaf1ca70d4a4a6500b72d2fe4058d560`.
+Negative results remain visible: zero-shot CE reduced DEV nDCG relative to RRF, including tuned RRF. CE fine-tuning improved its direct predecessor, but its TEST nDCG was below tuned dense/RRF alternatives. CatBoost remains selected on DEV; no TEST comparison changed selection. A single DEV rank-bm25 diagnostic attributed baseline differences to the BM25/IDF variant. Results, per-query metrics, and the original paired bootstrap are retained in `data/evaluation/` and the `frozen-ladder` run.
 
-## Generation measurements and citation proxies
+## Citation and latency proxies
 
-The historical single pass of all 119 TEST questions through `/ask` used pipeline 7 with the Torch retrieval backend. It was not repeated during recovery or after the ORT switch. These are citation/operational proxies, **never answer correctness**.
+The saved Torch `/ask` pass contains 119 completed TEST requests, no HTTP failures, and these **operational/citation proxies—not answer correctness**:
 
-| Measure | Recorded result |
+| Measure | Result |
 |---|---:|
-| HTTP completions / failures | 119 / 0 |
-| Answer with accepted citation | 51/119, 42.86% |
-| Cites at least one qrel-positive passage | 20/119, 16.81% |
+| Accepted citation present | 51/119, 42.86% |
+| At least one qrel-positive citation | 20/119, 16.81% |
 | Abstention | 68/119, 57.14% |
-| Completion limit and no-thinking retry | 35/119, 29.41% |
+| Completion limit / no-thinking retry | 35/119, 29.41% |
 | E2E p50 / p95 | 10.77 / 22.32 s |
 | E2E mean | 12.46 s |
-| Sampled total GPU memory peak | 3155.625 MiB, 5 s scrape interval |
 
-Qwen runs with context 8192, thinking enabled, reasoning budget 512, and total completion cap 1024. This llama.cpp build exposed 511 retokenized reasoning tokens at the template boundary in DEV probes; it did not expose an authoritative reasoning-token counter. The gateway retries once without thinking when the completion limit is reached. That fallback's 29.41% historical frequency is a main latency factor; queueing adds further delay under load.
+Among the 51 cited answers, **20/51 = 39.22%** cited a labeled-positive passage. This is a lower-bound qrel-membership proxy because qrels are incomplete. It is not a lower bound on answer correctness or entailment.
 
-A separate six-request LLM-only DEV streaming probe measured process-cold TTFT 0.611 s and five warm requests with TTFT p50/p95 0.606/0.610 s, first-answer-token p50/p95 5.696/5.715 s, decode median 100.98 tokens/s, E2E p50/p95 8.642/8.667 s, and sampled VRAM peak 3120 MiB. It had zero retries. TTFT includes reasoning; this is not `/ask` TTFT. OS page cache was warm and prompt cache disabled. The cold streaming E2E was 8.565 s.
+Qwen uses context 8192, thinking budget 512, and total completion cap 1024. DEV probes observed 511 retokenized reasoning tokens at the template boundary; the runtime did not expose an authoritative reasoning-token counter. The gateway retries once without thinking on truncation. The historical 29.41% retry rate is a major latency factor. Serving is essentially single-user on the 4 GiB GPU because generation is serialized.
 
-The live DEV browser flow verified Ask, Sources, Ranking Trace, and ticker/year/form filters, with no JavaScript errors; screenshots remain in `logs/ui-dev.png` and `logs/ui-ranking-dev.png`. A GM incentive question produced an answer citing GM 2025 10-K pages 4–5. This is a demo receipt, not a correctness annotation.
+A separate six-request, single-question DEV streaming probe measured process-cold TTFT 0.611 s, warm TTFT p50/p95 0.606/0.610 s, first-answer-token p50/p95 5.696/5.715 s, median decode 100.98 tokens/s, and sampled VRAM peak 3120 MiB. This is LLM-only TTFT, includes reasoning, uses warm OS page cache, and is not `/ask` TTFT or a capacity claim.
 
-## Model lifecycle and local CI rehearsal
+## Serving experiments and observability
 
-Four registered model names contain 14 versions: pipeline 1–9, encoder 1–2, CE 1–2, and ranker 1. Pipeline `champion` is 7 and `previous` is 1. Encoder champion is 2, CE champion is 2, and ranker champion is 1.
-
-Promotion accepts only a finite full-pipeline DEV nDCG@10 at least as high as the current champion, retains `previous`, and updates component aliases. Rollback explicitly restores the prior version. Health receipts and live searches/answers verified two servable versions:
-
-| Lifecycle receipt | Live pipeline version |
-|---|---:|
-| Before promotion | 1 |
-| Promote selected model | 7 |
-| Rollback | 1 |
-| Restore | 7 |
-
-`data/serving/lifecycle.json` retains the health, search, answer, and CLI receipts. Promotion of version 1 from champion 7 was correctly rejected. To exercise the local loop from the final state and restore champion 7:
-
-```bash
-source scripts/env.sh
-ledgerlight health
-ledgerlight rollback
-ledgerlight health
-ledgerlight promote 7
-ledgerlight health
-```
-
-`.github/workflows/ci.yml` runs `bash scripts/ci.sh`: Ruff, formatting, pytest, the static forbidden-feature gate, and a CPU DVC pipeline using an eight-query/sixteen-passage self-authored FinRank-schema fixture. Pytest includes the promotion gate, schema rejection cases, oracle-field rejection, citation enforcement, and provenance filter behavior. The equivalent workflow was executed locally. No hosted GitHub Actions workflow ran: there is no remote or hosted CI/CD deployment. This is a local lifecycle rehearsal, not production MLOps or a claim to Google MLOps level 1 or 2.
-
-## ONNX, Triton, and serving parity
-
-Selected encoder and CE graphs and both registered component versions were exported to ONNX, opset 17, FP32. All six graph files pass ONNX checking. Numerical checks use atol 1e-4 and rtol 1e-3. The table reports median milliseconds for 512 real financial tokens, three warmups and 20 repetitions, eight CPU threads, transfer included and tokenization excluded, TF32 disabled.
+The ONNX comparison used FP32, opset 17, 512 real financial tokens, eight CPU threads, three warmups and 20 repetitions. Transfer is included and tokenization excluded. Median milliseconds:
 
 | Model / batch | Torch CPU | ORT CPU | Torch CUDA | ORT CUDA |
 |---|---:|---:|---:|---:|
 | BGE / 1 | 135.59 | 76.10 | 17.06 | 15.43 |
 | BGE / 8 | 1437.32 | 703.39 | 128.88 | 118.33 |
-| MiniLM CE / 1 | 70.84 | 42.56 | 9.49 | 7.85 |
-| MiniLM CE / 8 | 780.51 | 365.05 | 64.71 | 59.40 |
+| CE / 1 | 70.84 | 42.56 | 9.49 | 7.85 |
+| CE / 8 | 780.51 | 365.05 | 64.71 | 59.40 |
 
-Full DEV ranking validation on CPU and CUDA retained every aggregate retrieval metric, including nDCG@10 40.2641%. CPU exact top-20 order matched 118/118 queries; CUDA matched 117/118, with 100% top-20 set overlap. Ranking uses the frozen Torch window index, as serving does. CUDA also checked all 11,067 re-embedded windows, maximum absolute error 3.87e-7; CPU window numerical checks cover batches 1 and 8.
+Full DEV aggregate retrieval metrics matched Torch on ORT CPU and CUDA. CPU exact top-20 order matched 118/118 queries, CUDA 117/118, both with 100% top-20 set overlap against the frozen window index. The separate live ORT CUDA check matched 19/20 exact orders and 99.75% top-20 overlap, with matching cutoff metrics. Serving is not bit-exact. CE is capped at batch 8 after a retained 1 GiB arena failure at batch 32; details are in the [build log](docs/BUILD_LOG.md).
 
-The original CE batch-32 attempt exceeded the configured **1 GiB ORT arena**, requesting 402,653,184 bytes with approximately 75 MB left. This was an isolated allocator-limit failure, not contention with another GPU service. The FAILED MLflow run and log are retained; CE inference is capped at batch 8. Completed timing cells were reused when validation resumed.
+Isolated Triton 26.01 ONNX validation passed parity. For each model, 32 concurrent batch-1 requests became five executions, mean batch 6.4, with total GPU memory 1773 MiB after the run. HTTP p50/p95 milliseconds were BGE batch 1: 18.34/20.09, batch 8: 118.45/119.51; CE batch 1: 10.30/10.64, batch 8: 60.20/60.34. HTTP round trips differ from model-only timings. Triton is not in the RAG path; TensorRT was not attempted.
 
-The live ORT CUDA `/search` DEV probe matched 19/20 exact orders and 99.75% top-20 overlap. Paired R@10, R@20, nDCG@10, and MRR within the returned top-20 lists were unchanged. A tiny numeric difference affected a cutoff/order; this is recorded rather than described as bit-exact serving. The frozen TEST result and prompt remain unchanged.
+On 25 DEV query vectors, Qdrant unfiltered approximate top-20 overlap with exact search was 99.6%, with median exact/approximate latency 4.27/2.71 ms at ef=64. Selective payload filters may cause the planner to use full scans. Production stays exact. Optional pgvector HNSW was slower and less complete under selective filters: for JNJ/2025, exact/HNSW median 7.10/24.68 ms and overlap 96.4%. These are agreement/latency measurements, not relevance or correctness.
 
-Isolated Triton ONNX Runtime CUDA serving was verified with the retained `26.01-py3` image, maximum batch 8, preferred batches 4/8 and 2000 μs queue delay. Both models passed numerical parity and each coalesced 32 concurrent batch-1 requests into **five executions, mean batch 6.4**. Total GPU memory after the run was 1773 MiB. HTTP round-trip median/p95 milliseconds:
+Prometheus and a provisioned ten-panel Grafana dashboard expose request rate, E2E and per-stage latency, errors, abstention, CPU, RSS, GPU memory, and scrape availability. Gateway, retrieval, Qdrant, llama.cpp, and isolated Triton were scraped while active in separate GPU phases. SQL failure slices are in `sql/`.
 
-| Model / batch | Triton HTTP p50 | p95 |
-|---|---:|---:|
-| BGE / 1 | 18.34 | 20.09 |
-| BGE / 8 | 118.45 | 119.51 |
-| CE / 1 | 10.30 | 10.64 |
-| CE / 8 | 60.20 | 60.34 |
+The Locust DEV sanity run offered one process-cold request and 12 warm requests at 0.1 requests/s: **13 completed, zero failed**. Cold E2E was 8.407 s; warm p50/p95 **20.12/24.44 s**, with four no-thinking retries. Queue p50/p95 was 8.617/13.641 s. The observed drain-inclusive completion rate was 0.0894/s over 134.238 s. This small run is **not a throughput or capacity benchmark or an SLA claim**. Cold excludes startup and retains warm OS page cache.
 
-HTTP overhead makes these different from the model-only ORT comparison. Triton fits alone and was stopped before application serving resumed. TensorRT conversion was not attempted; the bounded experiment verified the required ONNX backend and dynamic batching without adding another GPU runtime to the application.
-
-The following commands rerun DEV backend experiments, not TEST. Full CPU DEV validation is substantially slower than the small timing cells; run GPU work sequentially. Existing evidence remains in DVC and MLflow.
+Evidence and exact protocols are in `data/serving/{backends,triton,vector_search,pgvector,load,observability,sql_slices}.json`. Stop application GPU services before rerunning GPU experiments:
 
 ```bash
 source scripts/env.sh
@@ -268,83 +219,97 @@ docker compose -f compose.yaml -f compose.triton.yaml --profile triton stop --ti
 ledgerlight start
 ```
 
-Results: `data/serving/backends.json`, `onnx_components.json`, `triton.json`, and `ranking_parity-ort-cuda.json`. Timing cache reuse is explicit in the comparison script and retained evidence; these are measurements from this machine, not hardware-independent promises.
+## Registry and local lifecycle
 
-## ANN comparisons
+Registry metadata identifies these pipeline versions:
 
-Twenty-five fixed DEV query vectors were compared at grouped parent top-20, including payload filters. Qdrant approximate queries use ef=64; its planner may choose full scans for selective filters. Thus `exact=False` does not prove HNSW execution for every filtered request. The trained collection contains 11,067 indexed windows.
+| Version | Configuration identified by method tag |
+|---|---|
+| 1 | BM25 baseline |
+| 2 | BGE |
+| 3 | RRF |
+| 4 | CE-zero |
+| 5 | BGE-ft+RRF+CE-zero |
+| 6 | CE-ft |
+| 7 | CatBoost, champion |
+| 8 | BGE-ft-dense |
+| 9 | RRF-ft |
 
-| Filter | Eligible windows | Qdrant overlap (%) | Exact p50 ms | Approx p50 ms | pgvector overlap (%) | pgvector exact / HNSW p50 ms |
-|---|---:|---:|---:|---:|---:|---:|
-| None | 11067 | 99.60 | 4.27 | 2.71 | 99.60 | 4.40 / 1.80 |
-| 10-K | 9232 | 99.00 | 14.58 | 5.28 | 99.40 | 10.19 / 2.46 |
-| JNJ | 556 | 99.80 | 3.35 | 3.25 | 97.60 | 7.35 / 19.41 |
-| JNJ, 2025 | 327 | 100.00 | 3.28 | 3.22 | 96.40 | 7.10 / 24.68 |
-| 2022 | 18 | 100.00 | 1.69 | 1.59 | 98.93 | 6.96 / 24.52 |
+| Component version | Identification in registration run metadata |
+|---|---|
+| Encoder 1 | Base registration, `register-encoder-base` |
+| Encoder 2 | Trained registration, `register-encoder-trained` |
+| CE 1 | Base registration, `register-cross-encoder-base` |
+| CE 2 | Trained registration, `register-cross-encoder-trained` |
+| Ranker 1 | Ranker registration, `register-ranker`; referenced by pipeline 7 |
 
-Optional pgvector was inexpensive enough to run. EXPLAIN verified its HNSW index; m=16, ef_construction=100, ef_search=128, strict iterative scan, and top-400 window oversampling precede parent grouping. Its exact reference scans all eligible parents. Selective-filter HNSW was slower and lost more neighbors, a retained negative result. Neither ANN experiment changed production retrieval.
+Exact training trial IDs are **not identified in registry metadata** for the component versions. Checkpoint selections are recorded separately in `data/training/*_selected.json`. [Registry baseline metadata](reports/rename/baseline.json) preserves the identification evidence.
 
-```bash
-source scripts/env.sh
-python scripts/vector_check.py
-python scripts/pgvector_check.py
-```
+Pipeline champion is 7 and previous is 1. Promotion through `ledgerlight promote VERSION` requires a finite full-pipeline DEV nDCG@10 at least as high as the champion and preserves the prior alias. `ledgerlight rollback` restores the previous version. The saved local demonstration served versions 1 → 7 → 1 → 7 and rejected a regression; receipts are in `data/serving/lifecycle.json`. Historical pyfunc imports use a small compatibility namespace documented in the build log; artifacts and aliases are unchanged.
 
-Full p50/p95 and protocols are in `data/serving/vector_search.json` and `pgvector.json`. Overlap is agreement with exact retrieval, not relevance or answer accuracy.
+`bash scripts/ci.sh` runs Ruff, formatting, pytest, a static forbidden-feature gate, and an eight-query/sixteen-passage CPU DVC fixture. The local rehearsal passes 11 tests with four nonblocking MLflow type-hint warnings. **Hosted GitHub Actions has not run.** This is a local lifecycle rehearsal, not production MLOps or a claim to Google MLOps level 1 or 2.
 
-## Observability and DEV load
+## Third-party components and licenses
 
-Prometheus scrapes gateway, retrieval, Qdrant, llama.cpp, and isolated Triton while each is running. Grafana provisions ten panels for request rate, errors, abstentions, E2E p50/p95, gateway stages, retrieval stages, RSS, CPU, GPU memory, and scrape availability. Live traffic, metric queries, dashboard API, and dashboard page were verified. GPU targets were verified in separate phases, not all concurrently.
+The following records reproduce declarations in pinned model cards, source licenses, or installed distribution metadata. They are not legal conclusions or a complete transitive-license review. **The code license is not yet specified.** FinRank remains CC BY-NC 4.0 and is acquired separately, not bundled.
 
-Locust used independently scheduled DEV-only HTTP arrivals, one process-cold request followed by 12 warm requests at 0.1 offered requests/s. Warm median/p95 were 20.12/24.44 s, four requests retried without thinking, and queueing contributed substantially. Cold means first inference after service restart, excludes startup, and retains warm OS page cache. This is a **small DEV sanity run, not a throughput or capacity benchmark or an SLA claim**. The observed completion rate below includes the drain period and does not estimate sustainable throughput.
+| Component | Declared license / scope | Primary source |
+|---|---|---|
+| BGE-small, pinned revision above | MIT | [pinned model metadata](https://huggingface.co/BAAI/bge-small-en-v1.5/blob/5c38ec7c405ec4b44b94cc5a9bb96e735b38267a/README.md) |
+| MiniLM CE, pinned revision above | Apache-2.0 | [pinned model metadata](https://huggingface.co/cross-encoder/ms-marco-MiniLM-L6-v2/blob/233902d25c440f23af6f7d6e94d2946bac0bee0a/README.md) |
+| Unsloth Qwen GGUF, pinned revision above | Apache-2.0 | [pinned conversion metadata](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/blob/f6d5376be1edb4d416d56da11e5397a961aca8ae/README.md) |
+| Upstream Qwen/Qwen3.5-2B | Apache-2.0 at inspected commit `15852e8c16360a2fea060d615a32b45270f8a8fc`; exact upstream commit used for GGUF is not verified | [upstream metadata](https://huggingface.co/Qwen/Qwen3.5-2B/blob/15852e8c16360a2fea060d615a32b45270f8a8fc/README.md) |
+| llama.cpp b12284 | MIT | [pinned LICENSE](https://github.com/ggml-org/llama.cpp/blob/b12284/LICENSE) |
+| Qdrant 1.20.0 | Apache-2.0 | [pinned LICENSE](https://github.com/qdrant/qdrant/blob/v1.20.0/LICENSE) |
+| Triton 26.01-py3 | Bundled server LICENSE: BSD-3-Clause; complete image/bundled terms **not verified** | [server source LICENSE](https://github.com/triton-inference-server/server/blob/r26.01/LICENSE), retained image inspection |
+| Prometheus 3.16.0 | Apache-2.0 | [pinned LICENSE](https://github.com/prometheus/prometheus/blob/v3.16.0/LICENSE) |
+| Grafana 13.3.1 | GNU AGPL version 3 | [pinned LICENSE](https://github.com/grafana/grafana/blob/v13.3.1/LICENSE) |
+| PostgreSQL 18.6 / pgvector 0.8.7 | PostgreSQL License (terms in the respective COPYRIGHT / LICENSE files) | [PostgreSQL](https://github.com/postgres/postgres/blob/REL_18_6/COPYRIGHT), [pgvector](https://github.com/pgvector/pgvector/blob/v0.8.7/LICENSE) |
+| Ubuntu base / uv builder and other bundled runtime components | Complete image terms **not verified** | Component-wide review remains incomplete |
 
-| Measure | Result |
-|---|---:|
-| Cold offered / completed / failed | 1 / 1 / 0 |
-| Cold E2E | 8.407 s |
-| Warm offered / completed / failed | 12 / 12 / 0 |
-| Warm wall time, including drain | 134.238 s |
-| Observed completions / drained wall time | 0.0894 requests/s |
-| Warm E2E p50 / p95 | 20.122 / 24.443 s |
-| Warm no-thinking retry | 4/12, 33.33% |
-| Locust total requests / failures | 13 / 0 |
+Direct Python requirements and development tools, at the locked installed versions:
 
-Warm server-stage p50/p95 seconds:
+| Package | Version | Declared license | Versioned primary metadata |
+|---|---|---|---|
+| typer | 0.29.1 | MIT | [metadata](https://pypi.org/project/typer/0.29.1/) |
+| pydantic | 2.14.3 | MIT | [metadata](https://pypi.org/project/pydantic/2.14.3/) |
+| pyyaml | 6.0.3 | MIT | [metadata](https://pypi.org/project/pyyaml/6.0.3/) |
+| numpy | 2.5.4 | BSD-3-Clause | [metadata](https://pypi.org/project/numpy/2.5.4/) |
+| pandas | 2.3.3 | BSD-3-Clause | [metadata](https://pypi.org/project/pandas/2.3.3/) |
+| pandera | 0.27.1 | MIT | [metadata](https://pypi.org/project/pandera/0.27.1/) |
+| bm25s | 0.2.14 | MIT | [metadata](https://pypi.org/project/bm25s/0.2.14/) |
+| ranx | 0.3.21 | MIT | [metadata](https://pypi.org/project/ranx/0.3.21/) |
+| rank-bm25 | 0.2.2 | Apache-2.0 | [metadata](https://pypi.org/project/rank-bm25/0.2.2/) |
+| torch | 2.8.0+cu128 | BSD-3-Clause | [metadata](https://pypi.org/project/torch/2.8.0+cu128/) |
+| sentence-transformers | 5.2.3 | Apache-2.0 | [metadata](https://pypi.org/project/sentence-transformers/5.2.3/) |
+| transformers | 4.57.6 | Apache-2.0 | [metadata](https://pypi.org/project/transformers/4.57.6/) |
+| datasets | 4.8.5 | Apache-2.0 | [metadata](https://pypi.org/project/datasets/4.8.5/) |
+| accelerate | 1.15.0 | Apache-2.0 | [metadata](https://pypi.org/project/accelerate/1.15.0/) |
+| catboost | 1.2.10 | Apache-2.0 | [metadata](https://pypi.org/project/catboost/1.2.10/) |
+| optuna | 4.9.0 | MIT | [metadata](https://pypi.org/project/optuna/4.9.0/) |
+| mlflow | 3.7.0 | Apache-2.0 | [metadata](https://pypi.org/project/mlflow/3.7.0/) |
+| dvc | 3.67.1 | Apache-2.0 | [metadata](https://pypi.org/project/dvc/3.67.1/) |
+| psycopg | 3.3.8 | LGPL-3.0-only | [metadata](https://pypi.org/project/psycopg/3.3.8/) |
+| psycopg2-binary | 2.9.13 | LGPL with exceptions | [metadata](https://pypi.org/project/psycopg2-binary/2.9.13/) |
+| qdrant-client | 1.20.0 | Apache-2.0 | [metadata](https://pypi.org/project/qdrant-client/1.20.0/) |
+| fastapi | 0.162.4 | MIT | [metadata](https://pypi.org/project/fastapi/0.162.4/) |
+| uvicorn | 0.54.0 | BSD-3-Clause | [metadata](https://pypi.org/project/uvicorn/0.54.0/) |
+| httpx | 0.28.1 | BSD-3-Clause | [metadata](https://pypi.org/project/httpx/0.28.1/) |
+| streamlit | 1.67.0 | Apache-2.0 | [metadata](https://pypi.org/project/streamlit/1.67.0/) |
+| prometheus-client | 0.26.0 | Apache-2.0 | [metadata](https://pypi.org/project/prometheus-client/0.26.0/) |
+| locust | 2.47.0 | MIT | [metadata](https://pypi.org/project/locust/2.47.0/) |
+| onnx | 1.23.2 | Apache-2.0 | [metadata](https://pypi.org/project/onnx/1.23.2/) |
+| onnxruntime-gpu | 1.23.2 | MIT | [metadata](https://pypi.org/project/onnxruntime-gpu/1.23.2/) |
+| python-dotenv | 1.2.4 | BSD-3-Clause | [metadata](https://pypi.org/project/python-dotenv/1.2.4/) |
+| sqlalchemy | 2.0.57 | MIT | [metadata](https://pypi.org/project/sqlalchemy/2.0.57/) |
+| ruff | 0.17.4 | MIT | [metadata](https://pypi.org/project/ruff/0.17.4/) |
+| pytest | 8.4.2 | MIT | [metadata](https://pypi.org/project/pytest/8.4.2/) |
+| playwright | 1.65.0 | Apache-2.0 | [metadata](https://pypi.org/project/playwright/1.65.0/) |
 
-| Stage | p50 | p95 |
-|---|---:|---:|
-| Queue | 8.617 | 13.641 |
-| Retrieval, gateway wall time | 0.848 | 0.861 |
-| Query embedding | 0.0045 | 0.0065 |
-| Qdrant | 0.0096 | 0.0104 |
-| CE | 0.809 | 0.822 |
-| LTR | 0.0017 | 0.0021 |
-| Generation, including retry when used | 8.850 | 17.191 |
+[License evidence](reports/licenses.json) records metadata and license-file hashes, checked sources, and verification limits. The dataset's noncommercial restriction and unspecified code license remain separate facts.
 
-The cold request had no retry; its retrieval/generation were 0.928/7.444 s. A single cold request has no meaningful latency distribution. Quantiles across separate stages do not add to E2E quantiles. Warm queueing reflects serialized generation and the retry path, consistent with the separate historical 29.41% TEST retry proxy. The DEV warm retry rate is a different sample and does not replace that frozen measurement.
+## Limits
 
-`sql/` contains failure, abstention, empty-retrieval, and stage-latency slices. Executed PostgreSQL results show two validation errors from deliberate oracle-field probes and the intentional impossible-filter empty result; there were no load-test failures. Backend grouping separates historical Torch records from ORT traffic, but these mixed query samples are not a controlled backend E2E comparison.
+The curated pool is not EDGAR coverage. Qrels are incomplete; evaluation uses known documents and new questions, includes one duplicated cross-split question, and has small samples at TEST n=119 and DEV n=118. Repeated DEV selection is optimistic. Citation membership is not entailment; citation presence, qrel overlap, abstention, and retry rates are proxies rather than correctness. Serialized generation and frequent retries make this essentially single-user serving on a 4 GiB GPU. The small load run establishes no SLA or capacity. Hosted CI and a fresh end-to-end bootstrap remain unverified; local lifecycle receipts establish no production maturity level.
 
-```bash
-source scripts/env.sh
-python scripts/load_check.py
-python scripts/sql_check.py
-```
-
-For a cold rerun, stop/restart retrieval and llama and wait for health before the load script; do not send an inference warmup. `data/serving/load.json`, `sql_slices.json`, and `observability.json` retain the complete measurements. The load script itself does not restart services.
-
-## Recovery, failures, and limits
-
-Recovery followed a full machine power-off/reboot. The pause had not produced an S6 commit, and MLflow's old container had exit code 137. PostgreSQL's startup log reported a clean prior database shutdown; there was no evidence of corruption or lost history. Recovery found 120 runs, all 114 migration-era run IDs, four registered names, 14 versions, and champion 7. Qdrant collections and alias, backup, six ONNX graphs, frozen TEST checksum, config, and prompt were intact. No RUNNING run, held stale DVC lock, truncated JSON, or half-written ONNX artifact was found; no lock or useful artifact was removed.
-
-The old MLflow CLI PID 1 lacked a SIGTERM handler. A project-local process-group supervisor was added and a live stop returned exit 0 with the worker group reaped. The final stop uses that verified shutdown path. The unrelated user-owned `mlflow mcp run` processes were left untouched. S6 added five finished experiment runs, giving 125 total before final packaging, with the previous failed/interrupted runs retained.
-
-Final shutdown sent SIGTERM only. All ten containers are exited with code 0, PostgreSQL finished last, all project ports are closed, and GPU usage returned to the idle 11 MiB desktop baseline. MLflow emitted a nonblocking multiprocessing resource-tracker warning about two semaphore objects while shutting down; its worker group still exited cleanly with code 0. A direct host filesystem check of a Docker-owned volume hit a permission error; verification through `docker volume inspect` confirmed the managed volume, while project bind mounts were checked locally. No permission, host configuration, or volume content was changed. Shutdown and integrity receipts remain in `data/runtime/final_before_stop.json`, `final_after_stop.json`, and `logs/final-store-shutdown.log`.
-
-Other retained failures include an initial model registration rejected because Hugging Face snapshot symlinks resolved outside MLflow's artifact directory; materializing the files fixed registration. The interrupted BGE attempt, the 1 GiB ORT arena failure, an initial Streamlit session-state/form-key collision, and a browser readiness race are also retained. The product bugs were fixed with DEV probes. The official GGUF endpoint returned HTTP 401; the pinned Unsloth artifact was used. No extra sweeps, labels, LLM judges, TEST tuning, or TEST reruns were introduced.
-
-Two boundary deviations occurred earlier and remain disclosed. Initial NVIDIA catalog discovery and an MLflow artifact helper used default `/tmp` scratch before all temporary paths were redirected; disposable scratch was cleaned by those tools. Later scoped audits found no project-named `/tmp` entries or open project temporary files outside the workspace. Once, a process listing exposed the generated local database password in tool output. It was rotated, and a saved audit verified the retired credential was rejected. Current scans found no credential in Git history, DVC artifacts, MLflow artifacts, logs, or project process arguments. The backup is gitignored and mode 0600. Tool conversation history cannot be rewritten; these scans do not retract that exposure.
-
-This is a local, unauthenticated loopback demo. The curated FinRank pool is not all of EDGAR; published qrels are incomplete supervision. Evaluation covers known documents and new questions, includes one repeated cross-split question, and has substantial uncertainty at TEST n=119 and DEV n=118. Citation presence, citation/qrel overlap, abstention, and retry rates are proxies. No human annotation, answer-correctness evaluation, unseen-document transfer claim, production SLA, or MLOps maturity level is provided.
-
-The final local rehearsal passed Ruff, formatting, 11 pytest tests, and the CPU fixture/schema/model gates; four nonblocking MLflow type-hint warnings remain. Verification also checks DVC status/reproduction, scoped temporary-file and secret checks, registry aliases, and clean Compose shutdown. Stores, DB backup, Triton image, and the user's Ubuntu image are preserved. Git has no remote. The user still starts Docker manually after reboot, chooses the code license considering the data's CC BY-NC restriction, creates the GitHub repository and pushes when ready, and records the demo video. The package and CLI name is `ledgerlight`. No LICENSE or video is created here.
+[Build notes](docs/BUILD_LOG.md) retain operational deviations, failures, compatibility details, and identifier continuity. Frozen TEST artifacts, ranking configuration, generation prompt, and registry aliases remain unchanged.

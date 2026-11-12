@@ -1,0 +1,40 @@
+{
+  "passages": 5230,
+  "passages_with_multiple_source_records": 174,
+  "total_source_records": 5496,
+  "extra_source_records": 266,
+  "source_records_in_multiprovenance_passages": 440,
+  "passages_with_multiple_document_metadata": 46,
+  "saved_generation_requests": 119,
+  "accepted_citation_answers": 51,
+  "saved_positive_citation_hits": 20,
+  "positive_hit_among_cited": 0.39215686274509803,
+  "proxy_interpretation": "Lower-bound qrel-membership proxy with incomplete qrels; not answer correctness or entailment",
+  "learned_reranker_candidate_ceiling": {
+    "dev": {
+      "BGE-ft": 0.8128531073446328,
+      "CE-ft": 0.8128531073446328,
+      "CatBoost": 0.8128531073446328
+    },
+    "test": {
+      "BGE-ft": 0.7408963585434173,
+      "CE-ft": 0.7408963585434173,
+      "CatBoost": 0.7408963585434173
+    }
+  },
+  "seed_summary": {
+    "seed42_ndcg10": 0.40264051367999876,
+    "mean": 0.39823865359488025,
+    "range": [
+      0.39111930905507386,
+      0.40264051367999876
+    ]
+  },
+  "inputs": [
+    "data/processed/corpus.jsonl",
+    "data/generation/responses.jsonl",
+    "data/evaluation/metrics.json",
+    "data/training/ltr_selected.json"
+  ],
+  "new_test_predictions": false
+}
