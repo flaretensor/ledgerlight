@@ -1,4 +1,5 @@
 import os
+import re
 
 import httpx
 import pandas as pd
@@ -30,10 +31,15 @@ with st.sidebar:
     filters = {}
     for key, label in [
         ("ticker", "Company ticker"),
-        ("year", "Filing year"),
+        ("year", "Year (dataset label)"),
         ("form", "Filing form"),
     ]:
-        selected = st.selectbox(label, ["Any", *health["filters"][key]])
+        help_text = (
+            "Year labels come from the dataset and are not normalized to filing or fiscal year."
+            if key == "year"
+            else None
+        )
+        selected = st.selectbox(label, ["Any", *health["filters"][key]], help=help_text)
         if selected != "Any":
             filters[key] = selected
     st.caption("Filters apply before retrieval. Page references appear in each citation.")
@@ -66,18 +72,32 @@ with ask_tab:
                 )
     result = st.session_state.get("result")
     if result:
-        st.caption(f"Question: {st.session_state['question']}")
+        if submitted and not question.strip():
+            st.caption("Previous result")
+        question_caption = f"Question: {st.session_state['question']}"
+        if st.session_state["filters"]:
+            question_caption += " · Filters: " + " · ".join(
+                f"{k}: {v}" for k, v in st.session_state["filters"].items()
+            )
+        st.caption(question_caption)
         if filters != st.session_state["filters"]:
             st.info("The result below uses the filters from the last submitted question.")
-        if st.session_state["filters"]:
-            st.caption(
-                "Filters: "
-                + " · ".join(f"{k}: {v}" for k, v in st.session_state["filters"].items())
-            )
         if result["abstained"]:
             st.info("No answer found in the indexed passages.")
         else:
-            st.markdown(result["answer"], unsafe_allow_html=False)
+            displayed_answer = result["answer"]
+            body = displayed_answer.rstrip()
+            separators = list(re.finditer(r"\n[ \t]*\n", body))
+            if separators:
+                separator = separators[-1]
+                trailing = body[separator.end() :].strip()
+                earlier = body[: separator.start()]
+                if re.fullmatch(r"(?:\[\d+\]\s*)+", trailing):
+                    trailing_markers = set(re.findall(r"\[\d+\]", trailing))
+                    earlier_markers = set(re.findall(r"\[\d+\]", earlier))
+                    if trailing_markers <= earlier_markers:
+                        displayed_answer = earlier.rstrip()
+            st.markdown(displayed_answer, unsafe_allow_html=False)
         latency_caption = f"{result['latencies']['e2e']:.3f} seconds"
         if not result["abstained"]:
             count = len(result["citations"])
@@ -100,16 +120,16 @@ with rank_tab:
     result = st.session_state.get("result")
     if result:
         st.caption(f"Ranking for: {st.session_state['question']}")
-        st.subheader("Candidate passages")
-        st.caption(
-            "bm25: word matching; dense: embedding similarity; rrf: combined ranks; "
-            "ce: cross-encoder; ltr: CatBoost. Rank 1 is best; score scales differ."
-        )
         if st.session_state["filters"]:
             st.caption(
-                "Filters applied before retrieval: "
+                "Filters were applied before retrieval: "
                 + " · ".join(f"{k}: {v}" for k, v in st.session_state["filters"].items())
             )
+        st.caption(
+            "bm25: words; dense: embeddings; rrf: merged ranks; ce: cross-encoder; "
+            "ltr: CatBoost. Rank 1 is best. Ticker/year/form appear only for passages "
+            "sent to the model; cited marks passages referenced by the answer."
+        )
         ranking = result["ranking"]
         candidates = pd.DataFrame(ranking["trace"])
         if "ltr_rank" in candidates:
@@ -132,11 +152,6 @@ with rank_tab:
                     candidates[key] = (
                         candidates["passage_id"].map(values).fillna("—").replace("", "—")
                     )
-            st.caption(
-                "sent_to_model marks the returned evidence passages supplied to the LLM. "
-                "Ticker/year/form summarize returned source records; — means metadata "
-                "was not returned. Cited marks passages referenced by the answer."
-            )
         if "passage_id" in candidates:
             cited = {item["passage_id"] for item in result["citations"]}
             candidates["cited"] = candidates["passage_id"].isin(cited)
@@ -145,9 +160,9 @@ with rank_tab:
             anchor = "ltr_rank" if "ltr_rank" in columns else "passage_id"
             position = columns.index(anchor) + 1
             candidates = candidates[columns[:position] + flags + columns[position:]]
-        st.dataframe(candidates, hide_index=True, width="stretch", height="content")
+        st.subheader("Passages sent to the model")
         st.caption(
-            "Full retrieved passages are shown below. The LLM receives selected excerpts, "
+            "Full retrieved passages are shown here. The LLM receives selected excerpts, "
             "which may be shortened to fit its context."
         )
         for passage in ranking.get("results", []):
@@ -162,6 +177,30 @@ with rank_tab:
                     label += " · " + " / ".join(source_labels)
                 with st.expander(label):
                     st.text(passage["text"])
+        st.subheader("Candidate passages")
+        sent_count = len(ranking.get("results", []))
+        st.caption(
+            f"{len(candidates)} candidates; the first {sent_count} passages were sent to the model"
+        )
+        column_config = {
+            key: st.column_config.NumberColumn(format="%.4f")
+            for key in ["bm25", "dense", "rrf", "ce", "ltr"]
+            if key in candidates
+        }
+        column_config.update(
+            {
+                key: st.column_config.NumberColumn(format="%d")
+                for key in candidates
+                if key.endswith("_rank")
+            }
+        )
+        st.dataframe(
+            candidates,
+            hide_index=True,
+            width="stretch",
+            height=400,
+            column_config=column_config,
+        )
         st.subheader("Retrieval-stage timings")
         latency_parts = []
         if "e2e" in result["latencies"]:
@@ -177,13 +216,15 @@ with rank_tab:
         stages = [key for key in ["bm25", "embed", "qdrant", "ce", "ltr"] if key in timings]
         stages += [key for key in timings if key not in stages + summary_keys]
         if stages:
-            stage_rows = [{"stage": key, "seconds": round(timings[key], 3)} for key in stages]
+            stage_rows = [
+                {"stage": key, "milliseconds": round(timings[key] * 1000)} for key in stages
+            ]
             st.dataframe(
                 pd.DataFrame(stage_rows),
                 hide_index=True,
                 width="stretch",
                 height="content",
-                column_config={"seconds": st.column_config.NumberColumn(format="%.3f")},
+                column_config={"milliseconds": st.column_config.NumberColumn(format="%.0f")},
             )
         if summary_keys:
             labels = {
@@ -194,14 +235,15 @@ with rank_tab:
             }
             st.caption("Retrieval summary: totals overlap the stages; do not add these rows.")
             summary_rows = [
-                {"summary": labels[key], "seconds": round(timings[key], 3)} for key in summary_keys
+                {"summary": labels[key], "milliseconds": round(timings[key] * 1000)}
+                for key in summary_keys
             ]
             st.dataframe(
                 pd.DataFrame(summary_rows),
                 hide_index=True,
                 width="stretch",
                 height="content",
-                column_config={"seconds": st.column_config.NumberColumn(format="%.3f")},
+                column_config={"milliseconds": st.column_config.NumberColumn(format="%.0f")},
             )
         st.subheader("Pipeline versions")
         st.caption("Recorded model, index, and runtime versions for this response.")
