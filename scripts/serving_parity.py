@@ -39,13 +39,16 @@ else:
     expected = rank_ltr(model, read_json("data/training/ltr_scores.json")["dev"], context)
 queries = {q["id"]: q["question"] for q in read_jsonl("data/processed/queries.jsonl")}
 rows = []
+backend = None
 with httpx.Client(timeout=180) as client:
     for qid in read_json("data/processed/splits.json")["dev"][:20]:
         response = client.post(
             "http://127.0.0.1:8001/search", json={"question": queries[qid], "limit": 20}
         )
         response.raise_for_status()
-        ids = [r["passage_id"] for r in response.json()["results"]]
+        payload = response.json()
+        backend = payload["versions"]["backend"]
+        ids = [r["passage_id"] for r in payload["results"]]
         target = expected[qid][:20]
         rows.append(
             {
@@ -58,21 +61,29 @@ with httpx.Client(timeout=180) as client:
         )
 result = {
     "method": method,
+    "backend": backend,
+    "experiment_split": "dev_only_post_freeze_serving_validation",
     "queries": len(rows),
     "exact_order_queries": sum(r["exact_order"] for r in rows),
     "mean_overlap20": float(np.mean([r["overlap20"] for r in rows])),
     "rows": rows,
 }
+if path("data/serving/ranking_parity.json").exists():
+    previous = read_json("data/serving/ranking_parity.json")
+    write_json(
+        "data/serving/ranking_parity-" + previous.get("backend", "torch") + ".json", previous
+    )
 write_json("data/serving/ranking_parity.json", result)
+write_json("data/serving/ranking_parity-" + backend + ".json", result)
 print(json.dumps(result, indent=2))
 
 
 tracking(
-    "serving-ranking-parity",
+    "serving-ranking-parity-" + backend,
     {
         "mean_overlap20": result["mean_overlap20"],
         "exact_order_queries": result["exact_order_queries"],
     },
-    {"split": "dev", "queries": 20},
+    {"split": "dev", "queries": 20, "backend": backend},
     result,
 )

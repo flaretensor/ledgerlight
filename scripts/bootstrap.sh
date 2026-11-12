@@ -8,7 +8,7 @@ from pathlib import Path
 import secrets
 p=Path('.env')
 if not p.exists():
-    p.write_text('POSTGRES_USER=ledgerlight\nPOSTGRES_PASSWORD='+secrets.token_hex(24)+'\nPOSTGRES_DB=ledgerlight\nPOSTGRES_PORT=5433\nGRAFANA_PASSWORD='+secrets.token_hex(16)+'\n')
+    p.write_text('POSTGRES_USER=ledgerlight\nPOSTGRES_PASSWORD='+secrets.token_hex(24)+'\nPOSTGRES_DB=ledgerlight\nPOSTGRES_PORT=5433\nGRAFANA_PASSWORD='+secrets.token_hex(16)+'\nLEDGERLIGHT_BACKEND=ort-cuda\n')
     p.chmod(0o600)
 PY
 docker compose stop llama retrieval gateway ui

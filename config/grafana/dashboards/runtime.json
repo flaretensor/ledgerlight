@@ -2,7 +2,7 @@
   "uid": "ledgerlight-runtime",
   "title": "Ledgerlight runtime",
   "schemaVersion": 41,
-  "version": 1,
+  "version": 2,
   "editable": false,
   "timezone": "browser",
   "time": {
@@ -305,6 +305,40 @@
       "targets": [
         {
           "expr": "up{job=~\"gateway|retrieval|qdrant|llama|triton\"}",
+          "refId": "A",
+          "legendFormat": "{{stage}}{{service}}{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "CPU cores used",
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ledgerlight-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (job) (rate(process_cpu_seconds_total{job=~\"gateway|retrieval|qdrant|llama\"}[1m]))",
           "refId": "A",
           "legendFormat": "{{stage}}{{service}}{{job}}"
         }
