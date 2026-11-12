@@ -1,0 +1,70 @@
+{
+  "status": "FINISHED",
+  "scope": "post-hoc exploratory paired bootstrap of saved TEST query scores only",
+  "queries": 119,
+  "seed": 42,
+  "resamples": 10000,
+  "comparisons": [
+    {
+      "comparator": "RRF-ft",
+      "metric": "ndcg@10",
+      "delta": 0.051392629106142035,
+      "ci95": [
+        0.0061555074610255825,
+        0.09623936251591073
+      ]
+    },
+    {
+      "comparator": "RRF-ft",
+      "metric": "mrr",
+      "delta": 0.06028508144530763,
+      "ci95": [
+        -0.0013911596152750315,
+        0.12167676936057172
+      ]
+    },
+    {
+      "comparator": "CE-ft",
+      "metric": "ndcg@10",
+      "delta": 0.06448029006226645,
+      "ci95": [
+        0.02456898649970732,
+        0.10513498767616913
+      ]
+    },
+    {
+      "comparator": "CE-ft",
+      "metric": "mrr",
+      "delta": 0.09633889983541084,
+      "ci95": [
+        0.03575607618316417,
+        0.15703623447521314
+      ]
+    },
+    {
+      "comparator": "BGE-ft-dense",
+      "metric": "ndcg@10",
+      "delta": 0.060438029227717016,
+      "ci95": [
+        0.020281613418032262,
+        0.10062761315179738
+      ]
+    },
+    {
+      "comparator": "BGE-ft-dense",
+      "metric": "mrr",
+      "delta": 0.07117496758809601,
+      "ci95": [
+        0.014272060194030827,
+        0.12881269633402498
+      ]
+    }
+  ],
+  "multiplicity": "Three unadjusted model comparisons for primary nDCG@10; three additional secondary MRR intervals. No family-wise or simultaneous coverage claim.",
+  "implementation": "Same difference-vector, default_rng integer resampling, mean and percentile quantiles as the frozen bootstrap",
+  "input_sha256": "f1e8ee186eb59abfd7851436d1c8eb0e41465192a186a8cf1223040e5a861d93",
+  "new_predictions": false,
+  "selection_changed": false,
+  "unit": "fraction; multiply by 100 for percentage points",
+  "run_id": "60ed920b1e5b4f97bce7950827efa667"
+}

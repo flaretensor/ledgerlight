@@ -308,6 +308,31 @@ Direct Python requirements and development tools, at the locked installed versio
 
 [License evidence](reports/licenses.json) records metadata and license-file hashes, checked sources, and verification limits. The dataset's noncommercial restriction and unspecified code license remain separate facts.
 
+## Post-hoc diagnostics
+
+These exploratory analyses leave the frozen system and selection unchanged. [Paired bootstrap](reports/posthoc/paired_bootstrap.json) uses only saved TEST scores: 10,000 paired query resamples, seed 42. There are three unadjusted primary model comparisons and three secondary MRR intervals; no simultaneous-coverage claim.
+
+| CatBoost minus | nDCG@10 difference [95% CI] (pp) | MRR difference [95% CI] (pp) |
+|---|---:|---:|
+| RRF-ft | 5.139 [0.616, 9.624] | 6.029 [-0.139, 12.168] |
+| CE-ft | 6.448 [2.457, 10.513] | 9.634 [3.576, 15.704] |
+| BGE-ft-dense | 6.044 [2.028, 10.063] | 7.117 [1.427, 12.881] |
+
+The paired nDCG intervals are positive for these saved comparisons; the MRR interval against RRF-ft includes zero. These are post-hoc, unadjusted comparisons on a small known-document test set, not confirmatory evidence of general transfer.
+
+The [DEV ablation](reports/posthoc/dev_ablation.json) retrains on the original partition B with cached frozen neural scores, trial-26 hyperparameters, and seeds 42/123/2026. Only DEV118 is scored. Hyperparameters were tuned for the full feature set and are not retuned for each removal.
+
+| Variant | Features | DEV nDCG@10 mean [seed range] (%) | MRR mean [seed range] (%) |
+|---|---:|---:|---:|
+| full_14 | 14 | 39.824 [39.112, 40.264] | 42.269 [41.010, 42.945] |
+| without_metadata | 11 | 35.448 [35.279, 35.693] | 38.485 [37.491, 39.329] |
+| without_ce | 12 | 38.175 [37.807, 38.577] | 41.219 [40.641, 41.771] |
+| without_ranks | 10 | 39.379 [38.816, 39.830] | 42.715 [41.761, 43.508] |
+| without_length_count | 11 | 38.010 [37.749, 38.443] | 39.926 [39.273, 41.000] |
+| retrieval_only | 6 | 34.111 [34.018, 34.166] | 36.176 [36.027, 36.296] |
+
+All three full-feature results reproduce the saved DEV seed results. Among single-group removals, metadata removal has the largest mean nDCG decrease. Removing rank features slightly increases mean MRR while reducing mean nDCG in this setup. Frozen-model PredictionValuesChange importance ranks passage length, CE rank, and ticker match highest; this is descriptive importance, not causal attribution. Three seeds and the same reused DEV set do not identify an optimal feature subset or justify a serving change. No TEST scoring, tuning, registration, or alias updates occurred in the ablation.
+
 ## Limits
 
 The curated pool is not EDGAR coverage. Qrels are incomplete; evaluation uses known documents and new questions, includes one duplicated cross-split question, and has small samples at TEST n=119 and DEV n=118. Repeated DEV selection is optimistic. Citation membership is not entailment; citation presence, qrel overlap, abstention, and retry rates are proxies rather than correctness. Serialized generation and frequent retries make this essentially single-user serving on a 4 GiB GPU. The small load run establishes no SLA or capacity. Hosted CI and a fresh end-to-end bootstrap remain unverified; local lifecycle receipts establish no production maturity level.
