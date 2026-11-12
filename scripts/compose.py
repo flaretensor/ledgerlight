@@ -26,22 +26,35 @@ if action == "start":
                 time.sleep(1)
     print("Ledgerlight ready at http://127.0.0.1:8501")
 elif action == "stop":
-    subprocess.run(
+    command = [
+        "docker",
+        "compose",
+        "-f",
+        "compose.yaml",
+        "-f",
+        "compose.triton.yaml",
+        "--profile",
+        "triton",
+    ]
+    for services in [
         [
-            "docker",
-            "compose",
-            "-f",
-            "compose.yaml",
-            "-f",
-            "compose.triton.yaml",
-            "--profile",
+            "ui",
+            "gateway",
+            "llama",
+            "retrieval",
             "triton",
-            "stop",
-            "--timeout",
-            "30",
+            "qdrant",
+            "prometheus",
+            "grafana",
+            "mlflow",
         ],
-        cwd=ROOT,
-        check=True,
-    )
+        ["postgres"],
+    ]:
+        identifiers = subprocess.check_output(
+            command + ["ps", "--status", "running", "-q", *services], cwd=ROOT, text=True
+        ).split()
+        if identifiers:
+            subprocess.run(["docker", "kill", "--signal", "SIGTERM", *identifiers], check=True)
+            subprocess.run(["docker", "wait", *identifiers], check=True, timeout=60)
 else:
     raise SystemExit("Expected start or stop")
