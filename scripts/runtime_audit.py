@@ -59,7 +59,7 @@ for pid in sorted(pids):
     except OSError:
         pass
 entries = []
-for pattern in ["skills-*", "ledgerlight*"]:
+for pattern in ["skills-*", "ledgerlight*", "ledgerlight*"]:
     for entry in Path("/tmp").glob(pattern):
         if entry.stat().st_uid == os.getuid():
             entries.append(str(entry))

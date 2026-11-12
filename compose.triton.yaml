@@ -1,3 +1,4 @@
+name: ledgerlight
 services:
   triton:
     image: nvcr.io/nvidia/tritonserver:26.01-py3

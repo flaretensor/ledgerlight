@@ -34,6 +34,11 @@ def refresh():
             qdrant_url=os.environ.get("LEDGERLIGHT_QDRANT_URL", "http://127.0.0.1:6333"),
         )
         aliases = ENGINE.qdrant.get_aliases().aliases
+        if any(
+            a.alias_name == "ledgerlight-active" and a.collection_name == ENGINE.collection
+            for a in aliases
+        ):
+            return ENGINE
         operations = []
         if any(a.alias_name == "ledgerlight-active" for a in aliases):
             operations.append(

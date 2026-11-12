@@ -242,7 +242,16 @@ def app_services():
     llama()
     start(
         "gateway",
-        [python, "-m", "uvicorn", "ledgerlight.gateway:app", "--host", "127.0.0.1", "--port", "8000"],
+        [
+            python,
+            "-m",
+            "uvicorn",
+            "ledgerlight.gateway:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8000",
+        ],
     )
     wait("http://127.0.0.1:8000/health")
     start(

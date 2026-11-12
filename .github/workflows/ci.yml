@@ -1,4 +1,4 @@
-name: ci
+name: Ledgerlight CI
 on: [push, pull_request]
 jobs:
   quality:
