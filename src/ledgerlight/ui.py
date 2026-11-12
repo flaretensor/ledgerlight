@@ -26,7 +26,7 @@ except httpx.HTTPError:
     st.stop()
 
 with st.sidebar:
-    st.subheader("Sources")
+    st.subheader("Filters")
     filters = {}
     for key, label in [
         ("ticker", "Company ticker"),
@@ -66,18 +66,23 @@ with ask_tab:
                 )
     result = st.session_state.get("result")
     if result:
-        st.subheader(st.session_state["question"])
+        st.caption(f"Question: {st.session_state['question']}")
         if filters != st.session_state["filters"]:
             st.info("The result below uses the filters from the last submitted question.")
         if st.session_state["filters"]:
-            st.caption(" · ".join(f"{k}: {v}" for k, v in st.session_state["filters"].items()))
+            st.caption(
+                "Filters: "
+                + " · ".join(f"{k}: {v}" for k, v in st.session_state["filters"].items())
+            )
         if result["abstained"]:
             st.info("No answer found in the indexed passages.")
         else:
             st.markdown(result["answer"], unsafe_allow_html=False)
-        st.caption(
-            f"{result['latencies']['e2e']:.2f} seconds · {len(result['citations'])} cited sources"
-        )
+        latency_caption = f"{result['latencies']['e2e']:.3f} seconds"
+        if not result["abstained"]:
+            count = len(result["citations"])
+            latency_caption += f" · {count} cited {'source' if count == 1 else 'sources'}"
+        st.caption(latency_caption)
         for citation in result["citations"]:
             source_labels = [
                 f"{s['ticker']} · {s['form']} · {s['year']} · p. {s['page']}"
@@ -86,7 +91,10 @@ with ask_tab:
             with st.expander(f"[{citation['number']}] " + " / ".join(source_labels)):
                 st.text(citation["text"])
         if result["abstained"]:
-            st.caption("Try a more specific question or adjust the source filters.")
+            st.caption(
+                "The retrieved passages did not support an answer. Rephrasing the question "
+                "or changing the filters may help. See the ranking tab for the retrieved passages."
+            )
 
 with rank_tab:
     result = st.session_state.get("result")
@@ -94,10 +102,14 @@ with rank_tab:
         st.caption(f"Ranking for: {st.session_state['question']}")
         st.subheader("Candidate passages")
         st.caption(
-            "bm25: lexical BM25; dense: embedding similarity; rrf: reciprocal-rank fusion; "
-            "ce: cross-encoder; ltr: learned CatBoost ranking; *_rank: 1 is best. "
-            "Score scales differ by stage."
+            "bm25: word matching; dense: embedding similarity; rrf: combined ranks; "
+            "ce: cross-encoder; ltr: CatBoost. Rank 1 is best; score scales differ."
         )
+        if st.session_state["filters"]:
+            st.caption(
+                "Filters applied before retrieval: "
+                + " · ".join(f"{k}: {v}" for k, v in st.session_state["filters"].items())
+            )
         ranking = result["ranking"]
         candidates = pd.DataFrame(ranking["trace"])
         if "ltr_rank" in candidates:
@@ -117,22 +129,82 @@ with rank_tab:
                     for pid, item in evidence.items()
                 }
                 if any(values.values()):
-                    candidates[key] = candidates["passage_id"].map(values)
+                    candidates[key] = (
+                        candidates["passage_id"].map(values).fillna("—").replace("", "—")
+                    )
             st.caption(
                 "sent_to_model marks the returned evidence passages supplied to the LLM. "
-                "Ticker/year/form summarize source records in that evidence; blank means "
-                "the metadata was not returned."
+                "Ticker/year/form summarize returned source records; — means metadata "
+                "was not returned. Cited marks passages referenced by the answer."
             )
-        st.dataframe(candidates, hide_index=True, width="stretch")
-        st.subheader("Stage timings")
-        timings = pd.DataFrame(
-            [
-                {"stage": k, "seconds": round(v, 4)}
-                for k, v in result["ranking"]["latencies"].items()
-            ]
+        if "passage_id" in candidates:
+            cited = {item["passage_id"] for item in result["citations"]}
+            candidates["cited"] = candidates["passage_id"].isin(cited)
+            flags = [key for key in ["sent_to_model", "cited"] if key in candidates]
+            columns = [key for key in candidates if key not in flags]
+            anchor = "ltr_rank" if "ltr_rank" in columns else "passage_id"
+            position = columns.index(anchor) + 1
+            candidates = candidates[columns[:position] + flags + columns[position:]]
+        st.dataframe(candidates, hide_index=True, width="stretch", height="content")
+        st.caption(
+            "Full retrieved passages are shown below. The LLM receives selected excerpts, "
+            "which may be shortened to fit its context."
         )
-        st.dataframe(timings, hide_index=True, width="stretch")
+        for passage in ranking.get("results", []):
+            if passage.get("text"):
+                source_labels = [
+                    f"{source.get('ticker') or '—'} · {source.get('form') or '—'} · "
+                    f"{source.get('year') or '—'} · p. {source.get('page') or '—'}"
+                    for source in passage.get("sources", [])
+                ]
+                label = passage["passage_id"]
+                if source_labels:
+                    label += " · " + " / ".join(source_labels)
+                with st.expander(label):
+                    st.text(passage["text"])
+        st.subheader("Retrieval-stage timings")
+        latency_parts = []
+        if "e2e" in result["latencies"]:
+            latency_parts.append(f"Gateway end-to-end: {result['latencies']['e2e']:.3f} s")
+        if "generation" in result["latencies"]:
+            latency_parts.append(
+                f"LLM generation (including any retry): {result['latencies']['generation']:.3f} s"
+            )
+        if latency_parts:
+            st.caption(" · ".join(latency_parts))
+        timings = ranking["latencies"]
+        summary_keys = [key for key in ["queue", "registry", "total", "e2e"] if key in timings]
+        stages = [key for key in ["bm25", "embed", "qdrant", "ce", "ltr"] if key in timings]
+        stages += [key for key in timings if key not in stages + summary_keys]
+        if stages:
+            stage_rows = [{"stage": key, "seconds": round(timings[key], 3)} for key in stages]
+            st.dataframe(
+                pd.DataFrame(stage_rows),
+                hide_index=True,
+                width="stretch",
+                height="content",
+                column_config={"seconds": st.column_config.NumberColumn(format="%.3f")},
+            )
+        if summary_keys:
+            labels = {
+                "queue": "Retrieval queue wait",
+                "registry": "Registry lookup",
+                "total": "Retrieval engine total",
+                "e2e": "Retrieval service end-to-end",
+            }
+            st.caption("Retrieval summary: totals overlap the stages; do not add these rows.")
+            summary_rows = [
+                {"summary": labels[key], "seconds": round(timings[key], 3)} for key in summary_keys
+            ]
+            st.dataframe(
+                pd.DataFrame(summary_rows),
+                hide_index=True,
+                width="stretch",
+                height="content",
+                column_config={"seconds": st.column_config.NumberColumn(format="%.3f")},
+            )
         st.subheader("Pipeline versions")
+        st.caption("Recorded model, index, and runtime versions for this response.")
         st.json(result["ranking"]["versions"], expanded=False)
     else:
         st.info("Ask a question to inspect its retrieval and ranking scores.")

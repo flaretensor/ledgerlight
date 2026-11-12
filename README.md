@@ -1,6 +1,6 @@
 # Ledgerlight
 
-Ledgerlight is a local English finance-document RAG application: hybrid passage retrieval, learned reranking, and Qwen answers with numbered citations. The Ask tab shows answers with expandable sources, or “No answer found in the indexed passages.” on abstention; filter by ticker, year, and filing form. The How it was ranked tab shows candidates sorted by LTR rank, marks passages sent to the model, displays available source metadata, and separates stage timings from pipeline versions.
+Ledgerlight is a local English finance-document RAG application: hybrid passage retrieval, learned reranking, and Qwen answers with numbered citations. The Ask tab shows answers with expandable sources, or “No answer found in the indexed passages.” on abstention; filter by ticker, year, and filing form. The How it was ranked tab shows candidates sorted by LTR rank, marks passages sent to the model and cited in the answer, expands full retrieved passage text with available source metadata, and separates retrieval-stage timings and totals from gateway end-to-end/generation times and pipeline versions. Citation markers are structural membership checks and do not guarantee that answer wording or numbers match the source.
 
 **Results at a glance**
 
