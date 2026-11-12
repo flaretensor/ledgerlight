@@ -7,7 +7,7 @@ Ledgerlight is a local English finance-document RAG application: hybrid passage 
 - Frozen Torch TEST nDCG@10: BM25 **22.79% → CatBoost 34.92%**, **+12.13 pp**, paired-bootstrap 95% CI **[6.71, 17.65]**.
 - Official evaluation: **119 TEST / 118 DEV** questions in a known-document/new-query setting.
 - Configuration selection compared many candidates on DEV; those DEV results are optimistically biased by selection.
-- Live serving uses **ORT CUDA validated on DEV only**; neither the frozen TEST ladder nor its 119-question citation proxies measure ORT serving.
+- Live serving uses **ORT CUDA**; the current-prompt 119-question replay records ORT CUDA in every response. The frozen TEST retrieval ladder remains Torch; ORT retrieval-metric parity was validated on DEV only.
 
 ![DEV question, cited answer, and expandable sources](docs/ui-example.png)
 
@@ -127,7 +127,7 @@ The 14 LTR features are lexical/dense/RRF/CE scores and their four ranks; passag
 
 ## Frozen Torch retrieval evaluation
 
-Both the nine-entry ladder and the 119-question citation proxy run used **Torch**. Subsequent ORT validation is DEV-only. Recall is macro-averaged labeled-positive recall per query; all values below are percentages.
+The nine-entry frozen retrieval ladder used **Torch**. The current-prompt 119-question citation replay used **ORT CUDA**; the earlier prompt run used Torch. ORT retrieval-metric parity validation remains DEV-only. Recall is macro-averaged labeled-positive recall per query; all values below are percentages.
 
 DEV, n=118:
 
@@ -167,22 +167,24 @@ Negative results remain visible: zero-shot CE reduced DEV nDCG relative to RRF, 
 
 ## Citation and latency proxies
 
-The saved Torch `/ask` pass contains 119 completed TEST requests, no HTTP failures, and these **operational/citation proxies—not answer correctness**:
+The saved current-prompt ORT CUDA `/ask` replay contains 119 completed TEST requests, no HTTP failures, and these **operational/citation proxies—not answer correctness**:
 
 | Measure | Result |
 |---|---:|
-| Accepted citation present | 51/119, 42.86% |
-| At least one qrel-positive citation | 20/119, 16.81% |
-| Abstention | 68/119, 57.14% |
-| Completion limit / no-thinking retry | 35/119, 29.41% |
-| E2E p50 / p95 | 10.77 / 22.32 s |
-| E2E mean | 12.46 s |
+| Accepted citation present | 50/119, 42.02% |
+| At least one qrel-positive citation | 16/119, 13.45% |
+| Abstention | 69/119, 57.98% |
+| Completion limit / no-thinking retry | 32/119, 26.89% |
+| E2E p50 / p95 | 9.81 / 21.20 s |
+| E2E mean | 11.85 s |
 
-Among the 51 cited answers, **20/51 = 39.22%** cited a labeled-positive passage. This is a lower-bound qrel-membership proxy because qrels are incomplete. It is not a lower bound on answer correctness or entailment.
+These proxies use the current prompt; the previous-prompt Torch run gave similar aggregate values compatible with single-run noise, whose magnitude was not measured; no improvement or degradation is established, and differences cannot be attributed to the prompt because the backend also changed.
 
-Qwen uses context 8192, thinking budget 512, and total completion cap 1024. DEV probes observed 511 retokenized reasoning tokens at the template boundary; the runtime did not expose an authoritative reasoning-token counter. The gateway retries once without thinking on truncation. The historical 29.41% retry rate is a major latency factor. Serving is essentially single-user on the 4 GiB GPU because generation is serialized.
+Among the 50 cited answers, **16/50 = 32.00%** cited a labeled-positive passage. This is a lower-bound qrel-membership proxy because qrels are incomplete. It is not a lower bound on answer correctness or entailment.
 
-A separate six-request, single-question DEV streaming probe measured process-cold TTFT 0.611 s, warm TTFT p50/p95 0.606/0.610 s, first-answer-token p50/p95 5.696/5.715 s, median decode 100.98 tokens/s, and sampled VRAM peak 3120 MiB. This is LLM-only TTFT, includes reasoning, uses warm OS page cache, and is not `/ask` TTFT or a capacity claim.
+Qwen uses context 8192, thinking budget 512, and total completion cap 1024. DEV probes observed 511 retokenized reasoning tokens at the template boundary; the runtime did not expose an authoritative reasoning-token counter. The gateway retries once without thinking on truncation. The current replay retried 32/119 requests (26.89%); the cause of completion-limit retries, including any role of verbosity, is not established. Serving is essentially single-user on the 4 GiB GPU because generation is serialized.
+
+A separate previous-prompt six-request, single-question DEV streaming probe measured process-cold TTFT 0.611 s, warm TTFT p50/p95 0.606/0.610 s, first-answer-token p50/p95 5.696/5.715 s, median decode 100.98 tokens/s, and sampled VRAM peak 3120 MiB. This is LLM-only TTFT, includes reasoning, uses warm OS page cache, and is not `/ask` TTFT or a capacity claim.
 
 ## Serving experiments and observability
 
@@ -203,7 +205,7 @@ On 25 DEV query vectors, Qdrant unfiltered approximate top-20 overlap with exact
 
 Prometheus and a provisioned ten-panel Grafana dashboard expose request rate, E2E and per-stage latency, errors, abstention, CPU, RSS, GPU memory, and scrape availability. Gateway, retrieval, Qdrant, llama.cpp, and isolated Triton were scraped while active in separate GPU phases. SQL failure slices are in `sql/`.
 
-The Locust DEV sanity run offered one process-cold request and 12 warm requests at 0.1 requests/s: **13 completed, zero failed**. Cold E2E was 8.407 s; warm p50/p95 **20.12/24.44 s**, with four no-thinking retries. Queue p50/p95 was 8.617/13.641 s. The observed drain-inclusive completion rate was 0.0894/s over 134.238 s. This small run is **not a throughput or capacity benchmark or an SLA claim**. Cold excludes startup and retains warm OS page cache.
+The previous-prompt Locust DEV sanity run offered one process-cold request and 12 warm requests at 0.1 requests/s: **13 completed, zero failed**. Cold E2E was 8.407 s; warm p50/p95 **20.12/24.44 s**, with four no-thinking retries. Queue p50/p95 was 8.617/13.641 s. The observed drain-inclusive completion rate was 0.0894/s over 134.238 s. This small run is **not a throughput or capacity benchmark or an SLA claim**. Cold excludes startup and retains warm OS page cache.
 
 Evidence and exact protocols are in `data/serving/{backends,triton,vector_search,pgvector,load,observability,sql_slices}.json`. Stop application GPU services before rerunning GPU experiments:
 
@@ -335,6 +337,6 @@ All three full-feature results reproduce the saved DEV seed results. Among singl
 
 ## Limits
 
-The curated pool is not EDGAR coverage. Qrels are incomplete; evaluation uses known documents and new questions, includes one duplicated cross-split question, and has small samples at TEST n=119 and DEV n=118. Repeated DEV selection is optimistic. Citation membership is not entailment; citation presence, qrel overlap, abstention, and retry rates are proxies rather than correctness. Serialized generation and frequent retries make this essentially single-user serving on a 4 GiB GPU. The small load run establishes no SLA or capacity. Hosted CI and a fresh end-to-end bootstrap remain unverified; local lifecycle receipts establish no production maturity level.
+The curated pool is not EDGAR coverage. Qrels are incomplete; evaluation uses known documents and new questions, includes one duplicated cross-split question, and has small samples at TEST n=119 and DEV n=118. Repeated DEV selection is optimistic. Citation membership is not entailment; citation presence, qrel overlap, abstention, and retry rates are proxies rather than correctness. The current-prompt ORT CUDA replay recorded 50/119 cited answers (42.02%), 16/119 qrel-positive citations (13.45%; 16/50 cited answers = 32.00%), 69/119 abstentions (57.98%), 32/119 retries (26.89%), and E2E p50/p95 9.81/21.20 s. Retry causes are not established. Serialized generation and frequent retries make this essentially single-user serving on a 4 GiB GPU. The small load run establishes no SLA or capacity. Hosted CI and a fresh end-to-end bootstrap remain unverified; local lifecycle receipts establish no production maturity level.
 
-[Build notes](docs/BUILD_LOG.md) retain operational deviations, failures, compatibility details, and identifier continuity. Frozen TEST artifacts, ranking configuration, generation prompt, and registry aliases remain unchanged.
+[Build notes](docs/BUILD_LOG.md) retain operational deviations, failures, compatibility details, and identifier continuity. Frozen TEST retrieval artifacts, ranking configuration, and registry aliases remain unchanged; the generation prompt changed in `da2b0a3`, and the current replay is reported above.

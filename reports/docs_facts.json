@@ -6,9 +6,9 @@
   "source_records_in_multiprovenance_passages": 440,
   "passages_with_multiple_document_metadata": 46,
   "saved_generation_requests": 119,
-  "accepted_citation_answers": 51,
-  "saved_positive_citation_hits": 20,
-  "positive_hit_among_cited": 0.39215686274509803,
+  "accepted_citation_answers": 50,
+  "saved_positive_citation_hits": 16,
+  "positive_hit_among_cited": 0.32,
   "proxy_interpretation": "Lower-bound qrel-membership proxy with incomplete qrels; not answer correctness or entailment",
   "learned_reranker_candidate_ceiling": {
     "dev": {
@@ -34,7 +34,131 @@
     "data/processed/corpus.jsonl",
     "data/generation/responses.jsonl",
     "data/evaluation/metrics.json",
-    "data/training/ltr_selected.json"
+    "data/training/ltr_selected.json",
+    "data/generation/metrics.json"
   ],
-  "new_test_predictions": false
+  "new_test_predictions": false,
+  "generation_runs": {
+    "historical_old_prompt": {
+      "saved_generation_requests": 119,
+      "accepted_citation_answers": 51,
+      "saved_positive_citation_hits": 20,
+      "positive_hit_among_cited": 0.39215686274509803,
+      "abstentions": 68,
+      "retries": 35,
+      "completion_limits": 35,
+      "recorded_backends": {
+        "torch": 119
+      },
+      "metrics": {
+        "queries": 119,
+        "completed": 119,
+        "failed": 0,
+        "citation_present_rate": 0.42857142857142855,
+        "positive_citation_hit_rate": 0.16806722689075632,
+        "abstention_rate": 0.5714285714285714,
+        "retry_rate": 0.29411764705882354,
+        "completion_limit_rate": 0.29411764705882354,
+        "pipeline_versions": {
+          "7": 119
+        },
+        "latency_seconds": {
+          "mean": 12.460181222411403,
+          "p50": 10.771472975000506,
+          "p95": 22.320938299802947
+        },
+        "interpretation": "Citation-positive overlap only; no answer-correctness evaluation",
+        "rate_denominator": 119
+      },
+      "inputs": [
+        "data/generation.old-prompt/responses.jsonl",
+        "data/generation.old-prompt/metrics.json"
+      ],
+      "metrics_sha256": "ff0257c3ab79acaefc70d39bd43e1fe812bc5031b4733d2951a5802288e34e4a",
+      "responses_sha256": "ef5b094e4de0ffe14500fee14d0e89d7939b948a283078c9f8f3b845d2b35b45",
+      "prompt": "Previous SYSTEM literal containing Ledgerlight; historical run",
+      "original_report_inputs": [
+        "data/processed/corpus.jsonl",
+        "data/generation/responses.jsonl",
+        "data/evaluation/metrics.json",
+        "data/training/ltr_selected.json"
+      ]
+    },
+    "current_prompt": {
+      "saved_generation_requests": 119,
+      "accepted_citation_answers": 50,
+      "saved_positive_citation_hits": 16,
+      "positive_hit_among_cited": 0.32,
+      "abstentions": 69,
+      "retries": 32,
+      "completion_limits": 32,
+      "recorded_backends": {
+        "ort-cuda": 119
+      },
+      "metrics": {
+        "queries": 119,
+        "completed": 119,
+        "failed": 0,
+        "citation_present_rate": 0.42016806722689076,
+        "positive_citation_hit_rate": 0.13445378151260504,
+        "abstention_rate": 0.5798319327731093,
+        "retry_rate": 0.2689075630252101,
+        "completion_limit_rate": 0.2689075630252101,
+        "pipeline_versions": {
+          "7": 119
+        },
+        "latency_seconds": {
+          "mean": 11.85120861235295,
+          "p50": 9.805505729998913,
+          "p95": 21.202759487199724
+        },
+        "interpretation": "Citation-positive overlap only; no answer-correctness evaluation",
+        "rate_denominator": 119
+      },
+      "inputs": [
+        "data/generation/responses.jsonl",
+        "data/generation/metrics.json"
+      ],
+      "metrics_sha256": "65829cade6bd7a266f57f1055295b93abff47a89d98eeb9bfbf9ddc02941974f",
+      "responses_sha256": "5c0e2f84d060c0241bde9e24e9d56f2cf396a3111ab9670404be236c34587c53",
+      "prompt": "Current SYSTEM literal from commit da2b0a3; Answer in English, no Ledgerlight literal"
+    }
+  },
+  "paired_generation_comparison": {
+    "direction": "previous_prompt_torch -> current_prompt_ort_cuda",
+    "matched_qids": 119,
+    "answer_abstain": {
+      "abstain->abstain": 49,
+      "abstain->answer": 19,
+      "answer->abstain": 20,
+      "answer->answer": 31
+    },
+    "cited_positive": {
+      "false->false": 92,
+      "false->true": 7,
+      "true->false": 11,
+      "true->true": 9
+    },
+    "retry": {
+      "false->false": 69,
+      "false->true": 15,
+      "true->false": 18,
+      "true->true": 17
+    }
+  },
+  "generation_facts_derivation": "scripts/docs_facts.py reproduced the historical report exactly with its generation input redirected read-only to data/generation.old-prompt/responses.jsonl and output captured in memory; its fixed 51/20 assertion prevents direct current-run regeneration. Current counts and metrics were recomputed from saved JSONL and checked against metrics.json; generator source unchanged.",
+  "backend_attribution": {
+    "confidence": "high; directly recorded in all 119 responses per run",
+    "new_replay": "ort-cuda",
+    "old_run": "torch",
+    "field": "response.ranking.versions.backend",
+    "code_paths": [
+      "src/ledgerlight/engine.py:55-80",
+      "src/ledgerlight/engine.py:235-243",
+      "src/ledgerlight/onnx_backend.py:60-81"
+    ],
+    "container_env": "LEDGERLIGHT_BACKEND=ort-cuda in retrieval and gateway",
+    "postgresql_traces": "skipped; localhost:5433 unreachable; no services started",
+    "interpretation": "Prompt and backend both changed; no causal prompt comparison or semantic correctness claim"
+  }
 }
