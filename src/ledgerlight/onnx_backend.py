@@ -134,6 +134,7 @@ class OnnxCrossEncoder:
         )
 
     def predict(self, sentences, batch_size=32, **kwargs):
+        batch_size = min(batch_size, 8)
         scores = []
         for offset in range(0, len(sentences), batch_size):
             pairs = sentences[offset : offset + batch_size]
