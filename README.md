@@ -1,6 +1,6 @@
 # Ledgerlight
 
-Ledgerlight is a local English finance-document RAG application: hybrid passage retrieval, learned reranking, and Qwen answers with numbered citations. Ask questions in Streamlit, inspect expandable sources and the ranking trace, and filter by ticker, year, and filing form. Unsupported or invalidly cited output becomes `Not found in sources.`
+Ledgerlight is a local English finance-document RAG application: hybrid passage retrieval, learned reranking, and Qwen answers with numbered citations. The Ask tab shows answers with expandable sources, or “No answer found in the indexed passages.” on abstention; filter by ticker, year, and filing form. The How it was ranked tab shows candidates sorted by LTR rank, marks passages sent to the model, displays available source metadata, and separates stage timings from pipeline versions.
 
 **Results at a glance**
 

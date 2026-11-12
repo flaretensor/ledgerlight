@@ -10,4 +10,5 @@ COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
 RUN uv sync --frozen --no-dev
+COPY .streamlit/config.toml ./.streamlit/config.toml
 USER 1000:1000

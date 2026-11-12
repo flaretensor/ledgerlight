@@ -48,7 +48,9 @@ with ask_tab:
             placeholder="Which business segments does Johnson & Johnson operate?",
         )
         submitted = st.form_submit_button("Find an answer", type="primary")
-    if submitted and question.strip():
+    if submitted and not question.strip():
+        st.warning("Enter a question first.")
+    elif submitted:
         with st.spinner("Reading the sources…"):
             try:
                 response = httpx.post(
@@ -69,7 +71,10 @@ with ask_tab:
             st.info("The result below uses the filters from the last submitted question.")
         if st.session_state["filters"]:
             st.caption(" · ".join(f"{k}: {v}" for k, v in st.session_state["filters"].items()))
-        st.markdown(result["answer"], unsafe_allow_html=False)
+        if result["abstained"]:
+            st.info("No answer found in the indexed passages.")
+        else:
+            st.markdown(result["answer"], unsafe_allow_html=False)
         st.caption(
             f"{result['latencies']['e2e']:.2f} seconds · {len(result['citations'])} cited sources"
         )
@@ -86,19 +91,48 @@ with ask_tab:
 with rank_tab:
     result = st.session_state.get("result")
     if result:
+        st.caption(f"Ranking for: {st.session_state['question']}")
+        st.subheader("Candidate passages")
         st.caption(
-            "Candidate scores for the last submitted question. Score scales differ by stage."
+            "bm25: lexical BM25; dense: embedding similarity; rrf: reciprocal-rank fusion; "
+            "ce: cross-encoder; ltr: learned CatBoost ranking; *_rank: 1 is best. "
+            "Score scales differ by stage."
         )
-        st.dataframe(
-            pd.DataFrame(result["ranking"]["trace"]), hide_index=True, use_container_width=True
-        )
+        ranking = result["ranking"]
+        candidates = pd.DataFrame(ranking["trace"])
+        if "ltr_rank" in candidates:
+            candidates = candidates.sort_values("ltr_rank", kind="stable")
+        if "results" in ranking and "passage_id" in candidates:
+            evidence = {item["passage_id"]: item for item in ranking["results"]}
+            candidates["sent_to_model"] = candidates["passage_id"].isin(evidence)
+            for key in ["ticker", "year", "form"]:
+                values = {
+                    pid: " / ".join(
+                        dict.fromkeys(
+                            str(source[key])
+                            for source in item.get("sources", [])
+                            if source.get(key) is not None
+                        )
+                    )
+                    for pid, item in evidence.items()
+                }
+                if any(values.values()):
+                    candidates[key] = candidates["passage_id"].map(values)
+            st.caption(
+                "sent_to_model marks the returned evidence passages supplied to the LLM. "
+                "Ticker/year/form summarize source records in that evidence; blank means "
+                "the metadata was not returned."
+            )
+        st.dataframe(candidates, hide_index=True, width="stretch")
+        st.subheader("Stage timings")
         timings = pd.DataFrame(
             [
                 {"stage": k, "seconds": round(v, 4)}
                 for k, v in result["ranking"]["latencies"].items()
             ]
         )
-        st.dataframe(timings, hide_index=True, use_container_width=True)
+        st.dataframe(timings, hide_index=True, width="stretch")
+        st.subheader("Pipeline versions")
         st.json(result["ranking"]["versions"], expanded=False)
     else:
         st.info("Ask a question to inspect its retrieval and ranking scores.")

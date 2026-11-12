@@ -11,3 +11,6 @@ backgroundColor = "#f8fafc"
 secondaryBackgroundColor = "#edf2f7"
 textColor = "#172033"
 font = "sans serif"
+
+[client]
+toolbarMode = "viewer"
