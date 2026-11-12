@@ -69,9 +69,9 @@ sudo systemctl start docker
 docker info --format '{{.DockerRootDir}}'
 nvidia-smi
 source scripts/env.sh
-docker compose up -d postgres
+docker compose up -d --wait postgres
 docker compose exec -T postgres pg_isready -h 127.0.0.1 -p 5433 -U ledgerlight
-docker compose up -d mlflow qdrant prometheus grafana
+docker compose up -d --wait mlflow qdrant prometheus grafana
 curl --fail http://127.0.0.1:5000/health
 curl --fail http://127.0.0.1:6333/healthz
 ledgerlight start
