@@ -1,4 +1,6 @@
 import os
+import signal
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -6,6 +8,40 @@ from pathlib import Path
 import httpx
 
 from ledgerlight.common import database_url, digest, path, read_json
+
+
+def supervise(command):
+    process = subprocess.Popen(command, env=os.environ, start_new_session=True)
+    stopping = {"requested": False}
+
+    def forward(number, frame):
+        stopping["requested"] = True
+        try:
+            os.killpg(process.pid, number)
+        except ProcessLookupError:
+            pass
+
+    signal.signal(signal.SIGTERM, forward)
+    signal.signal(signal.SIGINT, forward)
+    code = process.wait()
+    if stopping["requested"]:
+        deadline = time.monotonic() + 25
+        while True:
+            try:
+                while os.waitpid(-1, os.WNOHANG)[0]:
+                    pass
+            except ChildProcessError:
+                pass
+            try:
+                os.killpg(process.pid, 0)
+            except ProcessLookupError:
+                print("MLflow process group stopped cleanly", flush=True)
+                return 0
+            if time.monotonic() >= deadline:
+                raise RuntimeError("MLflow process group did not stop within 25 seconds")
+            time.sleep(0.1)
+    return code if code >= 0 else 128 - code
+
 
 kind = sys.argv[1]
 if kind == "mlflow":
@@ -90,4 +126,6 @@ elif kind == "retrieval":
     ]
 else:
     raise SystemExit("Unknown container service")
+if kind == "mlflow":
+    raise SystemExit(supervise(args))
 os.execvpe(args[0], args, os.environ)
