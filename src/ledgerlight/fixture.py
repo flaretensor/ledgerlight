@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 import uuid
@@ -158,6 +159,8 @@ def run_ci():
     result = json.loads((fixture_root / "data/metrics.json").read_text())
     write_json("data/ci/" + fixture_root.name + ".json", result)
     print(json.dumps({"fixture_root": str(fixture_root.relative_to(ROOT)), **result}))
+    if os.environ.get("LEDGERLIGHT_CI_CLEANUP") == "1":
+        shutil.rmtree(fixture_root)
 
 
 if __name__ == "__main__":

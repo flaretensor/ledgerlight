@@ -6,4 +6,4 @@ ruff check src scripts tests
 ruff format --check src scripts tests
 pytest -q
 python scripts/leakage_check.py --static
-python -m ledgerlight.fixture ci
+LEDGERLIGHT_CI_CLEANUP=1 python -m ledgerlight.fixture ci
