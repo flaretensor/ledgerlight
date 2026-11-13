@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import time
 
@@ -11,6 +12,10 @@ METRICS = ["recall@10", "recall@20", "recall@100", "ndcg@10", "mrr"]
 
 
 def evaluate(rankings, labels):
+    from ledgerlight.test_access import guard_queries
+
+    guard_queries(rankings)
+
     from ranx import Qrels, Run
     from ranx import evaluate as ranx_evaluate
 
@@ -30,7 +35,10 @@ def tracking(name, metrics, parameters, artifact=None):
     import mlflow
 
     mlflow.set_tracking_uri("http://127.0.0.1:5000")
-    mlflow.set_experiment("ledgerlight")
+    experiment = (
+        "ledgerlight-pilot" if os.environ.get("LEDGERLIGHT_RUN_MODE") == "pilot" else "ledgerlight"
+    )
+    mlflow.set_experiment(experiment)
     with mlflow.start_run(run_name=name) as run:
         mlflow.log_params(parameters)
         mlflow.log_metrics({k.replace("@", "_"): float(v) for k, v in metrics.items()})

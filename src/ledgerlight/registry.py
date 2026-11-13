@@ -27,10 +27,11 @@ class CrossEncoderAdapter(mlflow.pyfunc.PythonModel):
         self.model = CrossEncoder(context.artifacts["weights"], device="cpu", max_length=512)
 
     def predict(self, context, model_input, params=None):
-        import torch
 
         pairs = list(zip(model_input["question"], model_input["text"]))
-        return self.model.predict(pairs, activation_fn=torch.nn.Identity())
+        from ledgerlight.pairs import torch_pair_scores
+
+        return torch_pair_scores(self.model, pairs)
 
 
 class RankerAdapter(mlflow.pyfunc.PythonModel):
@@ -167,6 +168,11 @@ def rollback():
 
 
 def register_all():
+    import os
+
+    if os.environ.get("LEDGERLIGHT_RUN_MODE") == "pilot":
+        raise PermissionError("Production registration is disabled in pilot mode")
+
     from huggingface_hub import snapshot_download
 
     from ledgerlight.final_evaluation import training_fingerprint

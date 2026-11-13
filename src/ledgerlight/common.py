@@ -11,6 +11,23 @@ load_dotenv(ROOT / ".env", override=False)
 
 
 def path(value):
+    if os.environ.get("LEDGERLIGHT_RUN_MODE") == "pilot":
+        isolated = (
+            "indices/",
+            "data/baselines/",
+            "data/training/",
+            "data/evaluation/",
+            "data/registry/",
+            "models/encoder/",
+            "models/cross_encoder/",
+            "models/ltr/",
+            "models/production/",
+            "models/onnx/",
+            "data/optuna.db",
+        )
+        name = str(value)
+        if any(name == prefix.rstrip("/") or name.startswith(prefix) for prefix in isolated):
+            return ROOT / "data/pilot" / name
     return ROOT / value
 
 

@@ -22,6 +22,10 @@ from ledgerlight.retrieval import (
 )
 
 
+def pilot():
+    return os.environ.get("LEDGERLIGHT_RUN_MODE") == "pilot"
+
+
 def seed_everything(seed):
     random.seed(seed)
     np.random.seed(seed)
@@ -162,6 +166,8 @@ def fit_encoder(config, seed, destination):
             optimizer.step()
             losses.append(float(loss.detach()))
             steps += 1
+            if pilot() and (steps >= 24 or time.monotonic() - started >= 600):
+                break
             if steps % 50 == 0:
                 print(
                     json.dumps(
@@ -215,12 +221,12 @@ def neural_encoder():
     storage = "sqlite:///" + str(path("data/optuna.db"))
     study = optuna.create_study(
         direction="maximize",
-        study_name="encoder",
+        study_name="pilot-encoder" if pilot() else "encoder",
         storage=storage,
         sampler=optuna.samplers.TPESampler(seed=42),
         load_if_exists=True,
     )
-    trial_limit = 6
+    trial_limit = 1 if pilot() else 6
     if history and history[0]["training_seconds"] > 900:
         trial_limit = 3 if history[0]["training_seconds"] <= 3600 else 1
     for number in range(len(history), trial_limit):
@@ -268,7 +274,7 @@ def neural_encoder():
         {"seed": 42, **history[[h["trial"] for h in history].index(best_trial)]["metrics"]}
     ]
     best_time = history[[h["trial"] for h in history].index(best_trial)]["training_seconds"]
-    if best_time < 600:
+    if best_time < 600 and not pilot():
         for seed in [123, 2026]:
             model, timing = fit_encoder(best_config, seed, f"models/encoder/seed-{seed}")
             metrics = encoder_metrics(model)
@@ -311,14 +317,9 @@ def fit_cross_encoder(config, seed, destination):
         rng.shuffle(pairs)
         for offset in range(0, len(pairs), 8):
             batch = pairs[offset : offset + 8]
-            inputs = model.tokenizer(
-                [p[0] for p in batch],
-                [p[1] for p in batch],
-                truncation="only_second",
-                max_length=512,
-                padding=True,
-                return_tensors="pt",
-            )
+            from ledgerlight.pairs import pair_inputs
+
+            inputs = pair_inputs(model.tokenizer, batch)
             inputs = {k: v.to("cuda") for k, v in inputs.items()}
             target = torch.tensor([p[2] for p in batch], device="cuda")
             optimizer.zero_grad(set_to_none=True)
@@ -330,6 +331,8 @@ def fit_cross_encoder(config, seed, destination):
             torch.nn.utils.clip_grad_norm_(model.model.parameters(), 1.0)
             optimizer.step()
             losses.append(float(loss.detach()))
+            if pilot() and (len(losses) >= 32 or time.monotonic() - started >= 300):
+                break
             if len(losses) % 100 == 0:
                 print(
                     json.dumps(
@@ -347,6 +350,7 @@ def fit_cross_encoder(config, seed, destination):
         "training_seconds": time.monotonic() - started,
         "mean_loss": float(np.mean(losses)),
         "pairs": len(pairs),
+        "steps": len(losses),
     }
 
 
@@ -420,13 +424,13 @@ def neural_cross_encoder():
     torch.cuda.empty_cache()
     study = optuna.create_study(
         direction="maximize",
-        study_name="cross_encoder",
+        study_name="pilot-cross-encoder" if pilot() else "cross_encoder",
         storage="sqlite:///" + str(path("data/optuna.db")),
         sampler=optuna.samplers.TPESampler(seed=43),
         load_if_exists=True,
     )
     history, best_score, selected_trial, selected_config = [], -1, None, None
-    trial_limit = 6
+    trial_limit = 1 if pilot() else 6
     for number in range(trial_limit):
         trial = study.ask()
         config = {
@@ -469,7 +473,7 @@ def neural_cross_encoder():
     best_path = f"models/cross_encoder/trial-{selected_trial}"
     best_entry = next(h for h in history if h["trial"] == selected_trial)
     seed_metrics = [{"seed": 42, **best_entry["metrics"]}]
-    if best_entry["training_seconds"] < 600:
+    if best_entry["training_seconds"] < 600 and not pilot():
         for seed in [123, 2026]:
             model, timing = fit_cross_encoder(
                 selected_config, seed, f"models/cross_encoder/seed-{seed}"
@@ -501,11 +505,11 @@ def neural_cross_encoder():
     return result
 
 
-def ltr_inputs(scored, context):
+def ltr_inputs(scored, context, *, training=False, audit=None):
     from ledgerlight.features import features
     from ledgerlight.retrieval import fuse
 
-    labels = read_json("data/processed/labels.json")
+    labels = read_json("data/processed/labels.json") if training else {}
     windows = context["windows"]
     count = len(context["corpus"])
     lengths, counts = np.zeros(count), np.zeros(count)
@@ -529,11 +533,28 @@ def ltr_inputs(scored, context):
             lengths,
             counts,
         )
-        positives = set(labels[qid]["positives"])
+        positives = set(labels.get(qid, {}).get("positives", []))
         y = [float(context["corpus"][p]["id"] in positives) for p in candidates]
+        if training:
+            positive_texts = {
+                " ".join(p["text"].split()) for p in context["corpus"] if p["id"] in positives
+            }
+            keep = np.asarray(
+                [
+                    bool(target)
+                    or " ".join(context["corpus"][p]["text"].split()) not in positive_texts
+                    for p, target in zip(candidates, y)
+                ]
+            )
+            dropped = int((~keep).sum())
+            if audit is not None:
+                audit["dropped_candidates"] += dropped
+                audit["affected_queries"] += int(dropped > 0)
+            matrix = matrix[keep]
+            y = np.asarray(y)[keep].tolist()
         matrices.append(matrix)
         targets.extend(y)
-        groups.extend([group] * len(candidates))
+        groups.extend([group] * len(y))
         ids.append(qid)
     return np.concatenate(matrices), np.asarray(targets), np.asarray(groups), ids
 
@@ -595,23 +616,24 @@ def train_ltr():
     del model_ce
     gc.collect()
     torch.cuda.empty_cache()
-    x, y, groups, _ = ltr_inputs(train_scored, context)
+    label_audit = {"dropped_candidates": 0, "affected_queries": 0, "queries": len(train_scored)}
+    x, y, groups, _ = ltr_inputs(train_scored, context, training=True, audit=label_audit)
     train_pool = Pool(x, y, group_id=groups, feature_names=FEATURE_NAMES)
     labels = read_json("data/processed/labels.json")
     study = optuna.create_study(
         direction="maximize",
-        study_name="catboost",
+        study_name="pilot-catboost" if pilot() else "catboost",
         storage="sqlite:///" + str(path("data/optuna.db")),
         sampler=optuna.samplers.TPESampler(seed=44),
         load_if_exists=True,
     )
     history = []
-    for number in range(params()["training"]["catboost_trials"]):
+    for number in range(3 if pilot() else params()["training"]["catboost_trials"]):
         trial = study.ask()
         config = {
-            "iterations": trial.suggest_int("iterations", 150, 500, step=50),
+            "iterations": trial.suggest_int("iterations", 150, 1500, step=50),
             "depth": trial.suggest_int("depth", 3, 7),
-            "learning_rate": trial.suggest_float("learning_rate", 0.02, 0.15, log=True),
+            "learning_rate": trial.suggest_float("learning_rate", 0.02, 0.3, log=True),
             "l2_leaf_reg": trial.suggest_float("l2_leaf_reg", 1, 20, log=True),
         }
         model = CatBoostRanker(
@@ -649,7 +671,7 @@ def train_ltr():
         print(json.dumps({"ltr_trial": trial.number, **metrics, "seconds": seconds}), flush=True)
     best = max(history, key=lambda h: h["metrics"]["ndcg@10"])
     seeds = [{"seed": 42, **best["metrics"]}]
-    if best["training_seconds"] < 600:
+    if best["training_seconds"] < 600 and not pilot():
         for seed in [123, 2026]:
             model = CatBoostRanker(
                 **best["config"],
@@ -677,6 +699,7 @@ def train_ltr():
         "index": index_name,
         "cross_encoder_path": cross_path,
         "upstream": upstream_name,
+        "label_audit": label_audit,
         "seeds": seeds,
         "dev_ndcg_mean": float(np.mean([m["ndcg@10"] for m in seeds])),
         "dev_ndcg_range": [min(m["ndcg@10"] for m in seeds), max(m["ndcg@10"] for m in seeds)],

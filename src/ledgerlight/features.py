@@ -1,4 +1,5 @@
 import re
+from functools import lru_cache
 
 import numpy as np
 
@@ -22,6 +23,33 @@ FEATURE_NAMES = [
 ]
 
 
+@lru_cache(maxsize=1)
+def company_aliases():
+    from ledgerlight.common import read_json
+
+    return read_json("config/company_aliases.json")
+
+
+def query_years(question):
+    years = set(re.findall(r"(?<!\d)(?:19|20)\d{2}(?!\d)", question))
+    years.update(re.findall(r"(?i)\b(?:FY|Q[1-4])\s*[-/]?\s*((?:19|20)\d{2})\b", question))
+    years.update("20" + year for year in re.findall(r"(?i)\bFY\s*[-/]?\s*(\d{2})\b", question))
+    return years
+
+
+def query_tickers(question):
+    tokens = set(re.findall(r"\w+", question.casefold()))
+    return {
+        ticker
+        for ticker, aliases in company_aliases().items()
+        if ticker.casefold() in tokens
+        or any(
+            re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", question, re.I)
+            for alias in aliases
+        )
+    }
+
+
 def ranks(values):
     output = np.empty(len(values), dtype=np.float32)
     output[order(values)] = np.arange(1, len(values) + 1)
@@ -30,6 +58,7 @@ def ranks(values):
 
 def features(question, candidates, lexical, dense, fusion, ce, corpus, lengths, counts):
     candidates = np.asarray(candidates)
+    tickers, years = query_tickers(question), query_years(question)
     qtokens = set(re.findall(r"\w+", question.casefold()))
     compact_question = re.sub(r"[^a-z0-9]", "", question.casefold())
     base = np.stack(
@@ -53,8 +82,12 @@ def features(question, candidates, lexical, dense, fusion, ce, corpus, lengths, 
         sources = corpus[int(candidate)]["sources"]
         metadata.append(
             [
-                float(any(s["ticker"].casefold() in qtokens for s in sources)),
-                float(any(s["year"] in qtokens for s in sources)),
+                float(
+                    any(
+                        s["ticker"] in tickers or s["ticker"].casefold() in qtokens for s in sources
+                    )
+                ),
+                float(any(s["year"] in years for s in sources)),
                 float(
                     any(
                         re.sub(r"[^a-z0-9]", "", s["form"].casefold()) in compact_question

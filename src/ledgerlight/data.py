@@ -136,6 +136,18 @@ def validate():
         "source_urls": False,
         "query_input_fields": ["id", "question"],
     }
+    aliases = read_json("config/company_aliases.json")
+    tickers = {source["ticker"] for passage in corpus for source in passage["sources"]}
+    if set(aliases) != tickers or any(not names for names in aliases.values()):
+        raise ValueError("Company alias keys must exactly cover the original corpus tickers")
+    for ticker, names in aliases.items():
+        for name in names:
+            if not any(
+                name.casefold() in passage["text"].casefold()
+                and any(source["ticker"] == ticker for source in passage["sources"])
+                for passage in corpus
+            ):
+                raise ValueError(f"Company alias not found in ticker passages: {ticker}")
     write_jsonl("data/processed/corpus.jsonl", corpus)
     write_jsonl("data/processed/queries.jsonl", queries)
     write_json("data/processed/labels.json", labels)

@@ -5,7 +5,7 @@ import time
 import numpy as np
 from catboost import CatBoostRanker
 
-from ledgerlight.common import digest, path, read_json, write_json
+from ledgerlight.common import digest, path, read_json, read_jsonl, write_json
 from ledgerlight.evaluation import evaluate, tracking
 from ledgerlight.retrieval import fuse, load_model, order
 from ledgerlight.training import candidate_context, ce_rankings, rank_ltr, score_ce
@@ -37,7 +37,7 @@ def configuration(method, ltr, encoder, cross, baselines):
         "ltr_path": ltr["path"] if method == "CatBoost" else None,
         "rrf_k": baselines["rrf_k"],
         "ce_depth": baselines["ce_depth"],
-        "window_count": 11067,
+        "window_count": len(read_jsonl("indices/base/windows.jsonl")),
         "windows_per_passage": 1,
         "corpus_sha256": digest(path("data/processed/corpus.jsonl")),
     }
@@ -51,7 +51,7 @@ def training_fingerprint():
     return hashlib.sha256(b"".join(values)).hexdigest()
 
 
-def evaluate_final():
+def _evaluate_final():
     fingerprint = training_fingerprint()
     if path("data/evaluation/metrics.json").exists():
         previous = read_json("data/evaluation/metrics.json")
@@ -242,5 +242,16 @@ def evaluate_final():
     print(json.dumps(result, indent=2))
 
 
+def evaluate_final(*, allow_test=False):
+    from ledgerlight.test_access import allow_test as test_permission
+
+    with test_permission(allow_test):
+        return _evaluate_final()
+
+
 if __name__ == "__main__":
-    evaluate_final()
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--allow-test", action="store_true")
+    evaluate_final(allow_test=parser.parse_args().allow_test)

@@ -63,34 +63,14 @@ async def invalid_request(request, exc):
 
 def complete(client, question, issued, thinking=True):
     cfg = params()["serving"]
-    ratio = 1.0
-    for attempt in range(8):
-        excerpts = []
-        for marker, item in issued.items():
-            sources = "; ".join(
-                f"{s['ticker']} / {s['form']} / {s['year']} / page {s['page']}"
-                for s in item["sources"]
-            )
-            text = "\n".join(item["windows"])
-            selected = text[: max(200, int(len(text) * ratio))]
-            excerpts.append(marker + " " + sources + "\n" + selected)
-        user_message = "Question: " + question + "\n\nSource excerpts:\n\n" + "\n\n".join(excerpts)
-        counted = client.post(
-            LLM_URL + "/tokenize", json={"content": SYSTEM + user_message, "add_special": True}
-        )
-        counted.raise_for_status()
-        prompt_tokens = len(counted.json()["tokens"])
-        if prompt_tokens + cfg["max_tokens"] + 256 <= cfg["context"]:
-            break
-        ratio *= 0.75
-    else:
-        raise ValueError("Prompt exceeds local context budget")
+    from ledgerlight.prompt_budget import pack_prompt
+
+    messages, prompt_tokens, clipped = pack_prompt(
+        client, LLM_URL, SYSTEM, question, issued, cfg, thinking
+    )
     body = {
         "model": "ledgerlight-qwen",
-        "messages": [
-            {"role": "system", "content": SYSTEM},
-            {"role": "user", "content": user_message},
-        ],
+        "messages": messages,
         "max_tokens": cfg["max_tokens"],
         "temperature": 0.2,
         "top_p": 0.8,
@@ -107,8 +87,8 @@ def complete(client, question, issued, thinking=True):
         "usage": payload.get("usage", {}),
         "timings": payload.get("timings", {}),
         "thinking": thinking,
-        "prompt_tokens_estimated": prompt_tokens,
-        "context_clipped": ratio < 1.0,
+        "prompt_tokens": prompt_tokens,
+        "context_clipped": clipped,
         "reasoning_present": bool(
             choice["message"].get("reasoning_content") or choice["message"].get("reasoning")
         ),

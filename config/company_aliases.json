@@ -1,0 +1,71 @@
+{
+  "ABBV": [
+    "AbbVie"
+  ],
+  "ABbV": [
+    "AbbVie"
+  ],
+  "AMGN": [
+    "Amgen"
+  ],
+  "COP": [
+    "ConocoPhillips"
+  ],
+  "CTRA": [
+    "Coterra"
+  ],
+  "CVX": [
+    "Chevron"
+  ],
+  "DVN": [
+    "Devon"
+  ],
+  "EOG": [
+    "EOG Resources"
+  ],
+  "EPD": [
+    "Enterprise Products"
+  ],
+  "ET": [
+    "Energy Transfer"
+  ],
+  "F": [
+    "Ford"
+  ],
+  "GM": [
+    "General Motors"
+  ],
+  "JNJ": [
+    "Johnson & Johnson"
+  ],
+  "KMI": [
+    "Kinder Morgan"
+  ],
+  "LLY": [
+    "Eli Lilly"
+  ],
+  "LNG": [
+    "Cheniere"
+  ],
+  "MPC": [
+    "Marathon Petroleum"
+  ],
+  "MRK": [
+    "Merck"
+  ],
+  "MRNA": [
+    "Moderna"
+  ],
+  "PFE": [
+    "Pfizer"
+  ],
+  "TSLA": [
+    "Tesla"
+  ],
+  "WMB": [
+    "Williams"
+  ],
+  "XOM": [
+    "ExxonMobil"
+  ]
+}

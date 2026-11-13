@@ -138,14 +138,9 @@ class OnnxCrossEncoder:
         scores = []
         for offset in range(0, len(sentences), batch_size):
             pairs = sentences[offset : offset + batch_size]
-            batch = self.tokenizer(
-                [p[0] for p in pairs],
-                [p[1] for p in pairs],
-                padding=True,
-                truncation=True,
-                max_length=512,
-                return_tensors="np",
-            )
+            from ledgerlight.pairs import pair_inputs
+
+            batch = pair_inputs(self.tokenizer, pairs, return_tensors="np")
             output = self.runtime.run(
                 None,
                 {

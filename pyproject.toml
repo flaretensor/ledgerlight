@@ -61,4 +61,4 @@ url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ledgerlight", "src/ledgerlight"]
+packages = ["src/ledgerlight"]

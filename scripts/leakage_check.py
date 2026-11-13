@@ -24,8 +24,8 @@ SOURCES = {
     "passage_tokens": "Passage WordPiece length from window end offsets",
     "window_count": "Number of indexed windows for the passage",
     "query_tokens": "Regex word count from query text",
-    "ticker_match": "Query word tokens compared with passage ticker metadata",
-    "year_match": "Query word tokens compared with passage year metadata",
+    "ticker_match": "Explicit ticker tokens or verified static company aliases compared with ticker metadata",
+    "year_match": "Explicit and fiscal-year expressions compared with source year metadata",
     "form_match": "Compact query text compared with passage form metadata",
 }
 
@@ -51,7 +51,12 @@ def static_audit():
         if isinstance(node, ast.ImportFrom)
         else (None, [item.name for item in node.names])
         for node in imports
-    ] == [(None, ["re"]), (None, ["numpy"]), ("ledgerlight.retrieval", ["order"])]
+    ] == [
+        (None, ["re"]),
+        ("functools", ["lru_cache"]),
+        (None, ["numpy"]),
+        ("ledgerlight.retrieval", ["order"]),
+    ]
     forbidden = {
         "qrels",
         "gold",
@@ -71,7 +76,10 @@ def static_audit():
                     "Forbidden metadata read"
                 )
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-            assert node.func.id not in {"open", "read_json", "read_jsonl", "eval", "exec"}
+            assert node.func.id not in {"open", "read_jsonl", "eval", "exec"}
+            if node.func.id == "read_json":
+                assert len(node.args) == 1 and isinstance(node.args[0], ast.Constant)
+                assert node.args[0].value == "config/company_aliases.json"
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             assert node.func.attr in {
                 "empty",
@@ -85,6 +93,10 @@ def static_audit():
                 "stack",
                 "full",
                 "append",
+                "update",
+                "items",
+                "search",
+                "escape",
             }, "Unreviewed feature data access"
     corpus = [
         {"sources": [{"ticker": "AAA", "year": "2024", "form": "10-K"}]},

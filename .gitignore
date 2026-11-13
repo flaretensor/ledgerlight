@@ -20,3 +20,5 @@ logs/
 *.onnx
 .qdrant-initialized
 scripts/enable-docker-gpu.sh
+
+.config/

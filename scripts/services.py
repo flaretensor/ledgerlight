@@ -155,7 +155,9 @@ def postgres():
     with psycopg.connect(
         database_url().rsplit("/", 1)[0] + "/postgres", autocommit=True
     ) as connection:
-        if not connection.execute("SELECT 1 FROM pg_database WHERE datname='ledgerlight'").fetchone():
+        if not connection.execute(
+            "SELECT 1 FROM pg_database WHERE datname='ledgerlight'"
+        ).fetchone():
             connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier("ledgerlight")))
 
 

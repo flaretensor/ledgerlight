@@ -1,7 +1,11 @@
 name: ledgerlight
 x-app: &app
-  image: ledgerlight-app:local
-  build: .
+  image: ledgerlight-rebuild:local
+  build:
+    context: .
+    additional_contexts:
+      dependency_cache: ./.cache/uv
+      python_runtime: ./.python
   user: "1000:1000"
   working_dir: /workspace
   network_mode: host
@@ -14,6 +18,8 @@ x-app: &app
     HF_HUB_DISABLE_TELEMETRY: "1"
     HF_HUB_DISABLE_XET: "1"
     XDG_CACHE_HOME: /workspace/.cache
+    XDG_CONFIG_HOME: /workspace/.config
+    PIP_CACHE_DIR: /workspace/.cache/pip
     CUDA_CACHE_PATH: /workspace/.cache/cuda
     TORCH_HOME: /workspace/.cache/torch
     TRITON_CACHE_DIR: /workspace/.cache/triton

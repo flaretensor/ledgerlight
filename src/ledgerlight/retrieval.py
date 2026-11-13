@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import sys
 import time
@@ -21,10 +22,12 @@ def fuse(lexical, dense, k=60, depth=100):
 
 
 def load_model(kind="encoder", model_path=None, device="cuda"):
-    from sentence_transformers import CrossEncoder, SentenceTransformer
+    from sentence_transformers import SentenceTransformer
+
+    from ledgerlight.cross_encoder import PolicyCrossEncoder
 
     config = params()["encoder" if kind == "encoder" else "cross_encoder"]
-    cls = SentenceTransformer if kind == "encoder" else CrossEncoder
+    cls = SentenceTransformer if kind == "encoder" else PolicyCrossEncoder
     kw = {
         "device": device,
         "trust_remote_code": False,
@@ -35,6 +38,16 @@ def load_model(kind="encoder", model_path=None, device="cuda"):
     if kind != "encoder":
         kw["max_length"] = 512
     return cls(str(model_path) if model_path else config["name"], **kw)
+
+
+def active_queries(queries):
+    from ledgerlight.common import read_json
+
+    if os.environ.get("LEDGERLIGHT_RUN_MODE") == "pilot":
+        splits = read_json("data/processed/splits.json")
+        allowed = set(splits["train"]) | set(splits["dev"])
+        return [(i, q) for i, q in enumerate(queries) if q["id"] in allowed]
+    return list(enumerate(queries))
 
 
 def lexical_index():
@@ -48,10 +61,10 @@ def lexical_index():
     out = path("indices/bm25")
     out.mkdir(parents=True, exist_ok=True)
     index.save(str(out))
-    scores = np.asarray(
-        [index.get_scores(re.findall(r"\w+", q["question"].lower())) for q in queries],
-        dtype=np.float32,
-    )
+    active = active_queries(queries)
+    scores = np.full((len(queries), len(corpus)), np.nan, dtype=np.float32)
+    for i, query in active:
+        scores[i] = index.get_scores(re.findall(r"\w+", query["question"].lower()))
     np.save(out / "scores.npy", scores)
     write_json(
         "indices/bm25/config.json",
@@ -60,28 +73,61 @@ def lexical_index():
     print(json.dumps({"queries": len(queries), "passages": len(corpus)}))
 
 
-def make_windows(tokenizer, corpus):
+def make_windows(tokenizer, corpus, content_tokens=None, stride=None):
+    from bisect import bisect_right
+
     cfg = params()["encoder"]
+    limit = cfg["content_tokens"] if content_tokens is None else content_tokens
+    step = cfg["stride"] if stride is None else stride
+    if not tokenizer.is_fast or not 0 < step <= limit:
+        raise ValueError("Fast tokenizer and valid window step required")
     windows = []
     for index, passage in enumerate(corpus):
-        ids = tokenizer.encode(passage["text"], add_special_tokens=False)
+        text = passage["text"]
+        encoded = tokenizer(
+            text,
+            add_special_tokens=False,
+            return_offsets_mapping=True,
+            truncation=False,
+            verbose=False,
+        )
+        ids, offsets = encoded["input_ids"], encoded["offset_mapping"]
+        words = encoded.word_ids()
+        boundaries = [0] + [i for i in range(1, len(ids)) if words[i] != words[i - 1]] + [len(ids)]
         start = 0
-        while True:
-            end = min(start + cfg["content_tokens"], len(ids))
+        while start < len(ids):
+            end = boundaries[bisect_right(boundaries, start + limit) - 1]
+            if end <= start:
+                raise ValueError("A pre-token exceeds the window capacity")
+            char_start, char_end = offsets[start][0], offsets[end - 1][1]
             selected = ids[start:end]
+            window_text = text[char_start:char_end]
+            if tokenizer.encode(window_text, add_special_tokens=False) != selected:
+                raise ValueError(f"Window token round-trip failed for {passage['id']}")
+            if not window_text or end - start > limit:
+                raise ValueError("Invalid window size")
             windows.append(
                 {
                     "id": len(windows),
                     "passage_index": index,
                     "start": start,
                     "end": end,
+                    "char_start": char_start,
+                    "char_end": char_end,
                     "input_ids": selected,
-                    "text": tokenizer.decode(selected, skip_special_tokens=True),
+                    "text": window_text,
                 }
             )
             if end == len(ids):
+                if text[char_end:].strip():
+                    raise ValueError("Passage tail not covered")
                 break
-            start += cfg["stride"]
+            next_start = boundaries[bisect_right(boundaries, start + step) - 1]
+            if not start < next_start <= end:
+                raise ValueError("Window step leaves a gap or fails to progress")
+            start = next_start
+        if not ids:
+            raise ValueError("Passage has no tokens")
     return windows
 
 
@@ -130,7 +176,9 @@ def embed(model_path=None, destination="indices/base"):
     queries = read_jsonl("data/processed/queries.jsonl")
     windows = make_windows(model.tokenizer, corpus)
     vectors = encode_windows(model, windows, params()["encoder"]["batch_size"])
-    qvectors = encode_queries(model, queries)
+    active = active_queries(queries)
+    qvectors = np.full((len(queries), vectors.shape[1]), np.nan, dtype=np.float32)
+    qvectors[[i for i, _ in active]] = encode_queries(model, [q for _, q in active])
     parents = np.asarray([w["passage_index"] for w in windows], dtype=np.int32)
     scores = parent_scores(qvectors, vectors, parents, len(corpus))
     dest = path(destination)
@@ -170,11 +218,12 @@ def best_windows(query_vector, vectors, windows, candidates, count=1):
 def cross_scores(model, question, candidates, qvector, vectors, windows, count=1):
     selected = best_windows(qvector, vectors, windows, candidates, count)
     pairs = [(question, windows[wid]["text"]) for group in selected for wid in group]
-    values = model.predict(
-        pairs,
-        batch_size=32,
-        show_progress_bar=False,
-        activation_fn=__import__("torch").nn.Identity(),
+    from ledgerlight.pairs import torch_pair_scores
+
+    values = (
+        model.predict(pairs, batch_size=8)
+        if hasattr(model, "runtime")
+        else torch_pair_scores(model, pairs)
     )
     result, offset = [], 0
     for group in selected:

@@ -36,6 +36,10 @@ def ingest_fixture():
                 ],
             }
         )
+    write_json(
+        "config/company_aliases.json",
+        {name: [name] for name in ["ALFA", "BRAVO", "CHARLIE", "DELTA", "ZULU"]},
+    )
     write_jsonl("data/raw/FinRank.jsonl", rows)
     write_json(
         "data/raw/splits.json",
