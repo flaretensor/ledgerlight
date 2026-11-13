@@ -7,6 +7,7 @@ import numpy as np
 from qdrant_client import QdrantClient, models
 
 from ledgerlight.common import digest, params, path, read_jsonl
+from ledgerlight.excerpts import original_window_text
 from ledgerlight.features import features, ranks
 from ledgerlight.retrieval import best_windows, cross_scores, load_model, order
 
@@ -217,7 +218,10 @@ class SearchEngine:
                     "passage_id": passage["id"],
                     "sources": [s for s in passage["sources"] if source_matches(s, filters)],
                     "all_sources": passage["sources"],
-                    "windows": [self.windows[wid]["text"] for wid in window_ids],
+                    "windows": [
+                        original_window_text(passage["text"], self.windows[wid])
+                        for wid in window_ids
+                    ],
                     "text": passage["text"],
                     "scores": trace_map.get(passage["id"], {}),
                 }

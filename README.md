@@ -37,7 +37,7 @@ flowchart LR
 
 Window hits are grouped by passage using maximum cosine similarity. Production Qdrant retrieval remains exact. Filters match one provenance record, so a ticker from one source cannot combine with a year from another. The query contract accepts question text and optional filters; labels and gold answers are unavailable to serving.
 
-The gateway serializes generation, supplies the best window of each of five passages, issues per-request source markers, and logs candidates, scores, answers, citations, timings, versions, and failures to PostgreSQL. Citation rendering rejects unissued markers, generated URLs, HTML, and uncited output. Marker membership is not entailment or a guarantee that a citation supports every claim.
+The gateway serializes generation, supplies the original-text span of the best window of each of five passages, issues per-request source markers, and logs candidates, scores, answers, citations, timings, versions, and failures to PostgreSQL. The pinned encoder tokenizer is loaded locally and offline; its token offsets select the original substring only after ranking, and a token-ID mismatch raises an error. The gateway's existing character-prefix context clipping still applies. Citation rendering rejects unissued markers, generated URLs, HTML, and uncited output. Marker membership is not entailment or a guarantee that a citation supports every claim.
 
 Triton is an isolated ONNX experiment, outside the RAG request path. On a 4 GiB GPU, stop application GPU services before benchmarks or Triton.
 
@@ -133,6 +133,10 @@ The combined `bash scripts/bootstrap.sh` path is intended to run these stages, b
 
 BGE uses normalized CLS embeddings, the model-card query prefix, 510 content tokens plus specials, stride 384, and 11,067 windows. BM25s uses Lucene IDF, k1=1.5, b=0.75, and lowercase `\w+` tokens. DEV selected RRF k=10 from 10/30/60/100 and CE depth 50 from 20/50/100. CE scores one best dense window per passage; CatBoost uses RRF top-100 candidates with CE features for that pool.
 
+510 content tokens follow BGE's 512-token input limit after two special tokens; a 384-token step yields a 126-token overlap, close in magnitude to the 128-token overlap convention in long-context QA examples. It is a heuristic, not DEV-tuned or proven optimal for this dataset.
+
+Only Qwen's excerpt text now uses original passage spans. The stored decoded windows and all retrieval inputs remain unchanged: BGE embeddings use stored token IDs, BGE training and CE retain decoded window text, and CatBoost retains the same derived features.
+
 | Component | Pin |
 |---|---|
 | BGE | `BAAI/bge-small-en-v1.5` @ `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a` |
@@ -186,6 +190,8 @@ The learned-reranker entries share **TEST R@100 74.09% / DEV R@100 81.29%**. Rou
 Negative results remain visible: zero-shot CE reduced DEV nDCG relative to RRF, including tuned RRF. CE fine-tuning improved its direct predecessor, but its TEST nDCG was below tuned dense/RRF alternatives. CatBoost remains selected on DEV; no TEST comparison changed selection. A single DEV rank-bm25 diagnostic attributed baseline differences to the BM25/IDF variant. Results, per-query metrics, and the original paired bootstrap are retained in `data/evaluation/` and the `frozen-ladder` run.
 
 ## Citation and latency proxies
+
+Both saved 119-question runs used tokenizer-decoded excerpts: the historical Ledgerlight-branded SYSTEM with Torch, and the current product-neutral SYSTEM with ORT CUDA (`data/generation/metrics.json` SHA256 `65829cade6bd7a266f57f1055295b93abff47a89d98eeb9bfbf9ddc02941974f`). Neither run nor its backup is rewritten by the original-text excerpt change; no generation replay has yet measured the changed input.
 
 The saved current-prompt ORT CUDA `/ask` replay contains 119 completed TEST requests, no HTTP failures, and these **operational/citation proxies—not answer correctness**:
 

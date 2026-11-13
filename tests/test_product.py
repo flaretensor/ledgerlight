@@ -45,3 +45,29 @@ def test_query_contract_rejects_oracle_fields():
     ]:
         with pytest.raises(ValidationError):
             SearchRequest.model_validate(payload)
+
+
+def test_original_window_text_preserves_source_and_rejects_mismatch(tmp_path):
+    import pytest
+    from transformers import BertTokenizerFast
+
+    from ledgerlight.excerpts import original_window_text
+
+    vocab = tmp_path / "vocab.txt"
+    vocab.write_text(
+        "[PAD]\n[UNK]\n[CLS]\n[SEP]\n[MASK]\nintro\n.\nmed\n##tech\nsales\nwere\n"
+        "$\n31\n9\nbillion\n;\nu\ns\nrevenue\nwas\n88\n,\n821\n"
+    )
+    tokenizer = BertTokenizerFast(vocab_file=str(vocab), do_lower_case=True)
+    text = "Intro. MedTech sales were $31.9 billion; U.S. revenue was 88,821.  \n"
+    ids = tokenizer.encode(text, add_special_tokens=False)
+    window = {"start": 2, "end": 11, "input_ids": ids[2:11]}
+    assert original_window_text(text, window, tokenizer) == "MedTech sales were $31.9 billion"
+    tail = {"start": 12, "end": len(ids), "input_ids": ids[12:]}
+    assert original_window_text(text, tail, tokenizer) == "U.S. revenue was 88,821."
+    piece = {"start": 3, "end": 4, "input_ids": ids[3:4]}
+    assert original_window_text(text, piece, tokenizer) == "Tech"
+    with pytest.raises(ValueError, match="token IDs do not match"):
+        original_window_text(text.replace("31.9", "88.9"), window, tokenizer)
+    with pytest.raises(ValueError, match="Invalid original passage token span"):
+        original_window_text(text, {**window, "end": len(ids) + 1}, tokenizer)
