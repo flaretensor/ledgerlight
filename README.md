@@ -43,7 +43,16 @@ Triton is an isolated ONNX experiment, outside the RAG request path. On a 4 GiB 
 
 ## Run locally
 
-Prerequisites are Docker with NVIDIA container access, uv, and the retained local artifacts or a separately reproduced workspace. Run commands from the repository root in Bash. All application ports bind to loopback; Compose uses `restart: "no"` and no autostart.
+Prerequisites are Docker with NVIDIA container access and uv. Run commands from the repository root in Bash. All application ports bind to loopback; Compose uses `restart: "no"` and no autostart.
+
+In a fresh clone, the Ledgerlight CLI is not available until this install step:
+
+```bash
+source scripts/env.sh
+uv sync --frozen
+```
+
+The start/health/ask/stop commands below require both installation and an already prepared workspace with models, indices and registry stores. For a fresh workspace, continue with the stages in [Data and reproduction](#data-and-reproduction).
 
 ```bash
 source scripts/env.sh
@@ -55,7 +64,9 @@ ledgerlight stop
 
 `start` builds the local application image as needed and waits for gateway/UI health. `stop` sends SIGTERM, waits up to 60 seconds without sending SIGKILL, and stops PostgreSQL last. It preserves data, volumes, containers, images, and caches.
 
-After a cold reboot, check the data mount before starting Docker. You start Docker with the host administrator command below; project scripts do not manage the daemon.
+Compose fixes the project name to `ledgerlight` and the app image name to `ledgerlight-app:local`, and host networking uses ports 8000/8501 among others. A second copy can collide with existing containers or image tags and occupied host ports; it needs a distinct project and app image plus free ports.
+
+For an installed, prepared workspace after a cold reboot, check the data mount before starting Docker. You start Docker with the host administrator command below; project scripts do not manage the daemon.
 
 ```bash
 findmnt .
@@ -107,7 +118,16 @@ bash scripts/ci.sh
 
 The official DAG is ingest → validate → index_bm25 → embed → baselines → train → evaluate. Unchanged outputs are reused. The evaluator reuses the frozen TEST result when its training fingerprint matches and refuses changed training inputs. Preserve frozen outputs; new diagnostics belong in separate files. DVC lock metadata was refreshed during renaming without executing official stages or changing any of the 15 tracked output hashes.
 
-For a fresh workspace, `bash scripts/bootstrap.sh` creates the environment and private `.env`, acquires pinned artifacts, reproduces the pipeline, registers models, and starts services. **This fresh bootstrap path has not been rerun end to end.** It includes substantial downloads and training; it is not a restart command. No DVC remote is configured, so a fresh Git checkout alone cannot retrieve unpublished local checkpoints. Caches and temporary paths are scoped by `scripts/env.sh`; the storage guard requires 20 GiB free on both filesystems.
+A fresh clone provides code, pinned data acquisition and local CI. Project-trained models, indices and MLflow/PostgreSQL registry stores are absent from Git and are not published; no DVC remote is configured, so serving from a fresh clone requires retraining.
+
+1. **Setup/install:** `source scripts/env.sh` and `uv sync --frozen` install the CLI. Bootstrap also creates a private `.env` and starts PostgreSQL/MLflow.
+2. **Data acquisition:** `python -m ledgerlight.data ingest` downloads and verifies pinned FinRank; bootstrap also fetches pinned llama.cpp/Qwen artifacts.
+3. **Training and evaluation:** `LEDGERLIGHT_RESUME=1 dvc repro evaluate` rebuilds missing pipeline outputs. Fresh retraining uses the GPU, takes substantial time, and performs a new TEST evaluation distinct from the frozen reported TEST run.
+4. **Serving:** bootstrap registers regenerated models and invokes `ledgerlight start`. Both `/search` and `/ask` require those models, indices and populated registry stores.
+
+The combined `bash scripts/bootstrap.sh` path is intended to run these stages, but **has not been verified end to end in a clean clone**: the checked image build exceeded a 240 s time box. It is not a restart command.
+
+`scripts/env.sh` scopes several cache and temporary paths but does not set `PIP_CACHE_DIR` or `XDG_CONFIG_HOME`; set them separately when isolation is required. The storage guard requires 20 GiB free on both filesystems.
 
 ## Models and training
 
@@ -341,6 +361,6 @@ The curated pool is not EDGAR coverage. Qrels are incomplete; evaluation uses kn
 
 ### Single-question segment comparison observation
 
-In one owner-observed UI run with JNJ/2024 filters, the current prompt, pipeline 7 and ORT CUDA, “What share of Johnson & Johnson's total FY2024 revenue was contributed by each segment, compared to FY2023?” produced an abstention. The shown evidence required combining figures from several passages: p04773 supplied consolidated sales and p00003 supplied MedTech sales, but none of the five sent passages supplied explicit Innovative Medicine sales. A single retrieval-only replay confirmed the same five passages and placed p04815 and p04823 among 100 candidates at LTR ranks 38 and 26, below the five sent to the model. Both contain the missing Innovative Medicine figures; p04823 also consolidates both segments and total sales, so this question does not inherently require multiple passages. The observed abstention was consistent with the evidence shown; it was not independently regenerated. This is a single-question observation, not repeated trials or a systematic estimate, and makes no claim about CE/LTR behavior or segment questions in general. `labels.json`/qrel relevance for this question was not checked.
+In one owner-observed UI run with JNJ/2024 filters, the current prompt, pipeline 7 and ORT CUDA, “What share of Johnson & Johnson's total FY2024 revenue was contributed by each segment, compared to FY2023?” produced an abstention. Within the five sent passages, consolidated sales and MedTech sales were split between p04773 and p00003, so those figures had to be combined; the Innovative Medicine sales needed to complete the answer were absent from that set. A single retrieval-only replay confirmed the same five passages and placed p04815 and p04823 among 100 candidates at LTR ranks 38 and 26, below the five sent to the model. Both contain the missing Innovative Medicine figures; p04823 also consolidates both segments and total sales, so this question does not inherently require multiple passages. The observed abstention was consistent with the evidence shown; it was not independently regenerated. This is a single-question observation, not repeated trials or a systematic estimate, and makes no claim about CE/LTR behavior or segment questions in general. `labels.json`/qrel relevance for this question was not checked.
 
 [Build notes](docs/BUILD_LOG.md) retain operational deviations, failures, compatibility details, and identifier continuity. Frozen TEST retrieval artifacts, ranking configuration, and registry aliases remain unchanged; the generation prompt changed in `da2b0a3`, and the current replay is reported above.
