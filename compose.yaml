@@ -44,10 +44,11 @@ services:
     env_file: .env
     environment:
       PGDATA: /var/lib/postgresql/18/docker
-      TMPDIR: /var/lib/postgresql/18/docker
-    command: ["postgres", "-p", "5433", "-c", "listen_addresses=127.0.0.1", "-c", "unix_socket_directories=/var/lib/postgresql/18/docker"]
+      TMPDIR: /var/run/postgresql
+    command: ["postgres", "-p", "5433", "-c", "listen_addresses=127.0.0.1", "-c", "unix_socket_directories=/var/run/postgresql"]
     volumes:
       - ./data/postgres:/var/lib/postgresql/18/docker
+      - ./.tmp/postgres:/var/run/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5433 -U ledgerlight"]
       interval: 5s
