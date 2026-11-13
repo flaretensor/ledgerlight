@@ -55,7 +55,7 @@ for name, filters in cases.items():
             "filter": name,
             "values": filters,
             "eligible_windows": eligible,
-            "selectivity": eligible / 11067,
+            "selectivity": eligible / info.points_count,
             "queries": len(recalls),
             "parent_recall20_vs_exact": float(np.mean(recalls)) if recalls else None,
             "exact_p50_ms": float(np.median(latencies[True])),

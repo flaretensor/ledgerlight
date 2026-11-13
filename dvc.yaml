@@ -13,6 +13,7 @@ stages:
     deps:
     - data/raw
     - src/ledgerlight/data.py
+    - config/company_aliases.json
     outs:
     - data/processed:
         persist: true
@@ -29,6 +30,9 @@ stages:
     deps:
     - data/processed
     - src/ledgerlight/retrieval.py
+    - src/ledgerlight/common.py
+    - src/ledgerlight/cross_encoder.py
+    - src/ledgerlight/pairs.py
     params:
     - encoder
     outs:
@@ -41,6 +45,10 @@ stages:
     - indices/bm25
     - indices/base
     - src/ledgerlight/evaluation.py
+    - src/ledgerlight/retrieval.py
+    - src/ledgerlight/cross_encoder.py
+    - src/ledgerlight/pairs.py
+    - src/ledgerlight/test_access.py
     params:
     - retrieval
     - cross_encoder
@@ -56,8 +64,16 @@ stages:
     - indices/base
     - src/ledgerlight/training.py
     - src/ledgerlight/features.py
+    - src/ledgerlight/retrieval.py
+    - src/ledgerlight/common.py
+    - src/ledgerlight/cross_encoder.py
+    - src/ledgerlight/pairs.py
+    - config/company_aliases.json
     params:
     - training
+    - encoder
+    - cross_encoder
+    - retrieval
     outs:
     - data/training:
         persist: true
@@ -81,6 +97,9 @@ stages:
     - models/cross_encoder
     - models/ltr
     - src/ledgerlight/final_evaluation.py
+    - src/ledgerlight/evaluation.py
+    - src/ledgerlight/test_access.py
+    - src/ledgerlight/common.py
     outs:
     - data/evaluation:
         persist: true

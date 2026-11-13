@@ -179,10 +179,14 @@ def fit_encoder(config, seed, destination):
                     ),
                     flush=True,
                 )
+        if pilot() and (steps >= 24 or time.monotonic() - started >= 600):
+            break
     model.save_pretrained(str(path(destination)), create_model_card=False)
     seconds = time.monotonic() - started
     del optimizer, loss_fn
     model.eval()
+    if pilot():
+        print(json.dumps({"pilot_encoder_fit_seconds": seconds, "steps": steps}), flush=True)
     return model, {"training_seconds": seconds, "mean_loss": float(np.mean(losses)), "steps": steps}
 
 
@@ -344,6 +348,8 @@ def fit_cross_encoder(config, seed, destination):
                     ),
                     flush=True,
                 )
+        if pilot() and (len(losses) >= 32 or time.monotonic() - started >= 300):
+            break
     model.model.save_pretrained(str(path(destination)))
     model.tokenizer.save_pretrained(str(path(destination)))
     return model, {
