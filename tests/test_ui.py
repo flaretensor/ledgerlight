@@ -122,7 +122,7 @@ def test_ui_copy_sources_and_detail_tables(ui):
     assert not any(x.startswith(("Question:", "Previous question:")) for x in captions)
     label = "[1] General Motors · Annual report (10-K) · filed 2025 · p. 4–5"
     assert app.expander[0].label == (
-        ":blue-background[**1**] **General Motors** · Annual report (10-K) · filed 2025 · p. 4–5"
+        ":primary-background[**1**] **General Motors** · Annual report (10-K) · filed 2025 · p. 4–5"
     )
     assert (
         app.expander[1].label
@@ -141,7 +141,7 @@ def test_ui_copy_sources_and_detail_tables(ui):
     assert '"label": "CE score"' in config
     assert not app.toggle[0].value
     assert app.toggle[0].label == "Show scores"
-    assert "color: #1967d2" in app.dataframe[0].proto.arrow_data.styler.styles
+    assert "color: #1f1f1f" in app.dataframe[0].proto.arrow_data.styler.styles
     assert not {"ticker", "year", "form"} & set(candidates.columns)
     assert timing.Step.tolist() == [
         "BM25",

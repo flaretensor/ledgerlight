@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from pathlib import Path
 
 import httpx
 import pandas as pd
@@ -233,7 +234,11 @@ def versions_table(versions):
     return pd.DataFrame(rows, columns=["Component", "Version"])
 
 
-st.set_page_config(page_title="Ledgerlight", page_icon="🔎", layout="centered")
+st.set_page_config(
+    page_title="Ledgerlight",
+    page_icon=Path(__file__).parent / "assets" / "favicon.png",
+    layout="centered",
+)
 st.html(
     """<style>
     [data-testid="stMainBlockContainer"]{max-width:768px;padding:3rem 24px 2rem}
@@ -251,9 +256,11 @@ st.html(
     [data-testid="stTextArea"] textarea{font-size:17px;background:transparent;border:0;
         padding:12px 14px}
     [data-testid="stTextArea"] textarea::placeholder{color:#6b7177;opacity:1}
-    a[href^="#source-"]{background:#e8f0fe;color:#174ea6;font-size:12px;font-weight:600;
+    a[href^="#source-"]{background:#fdecea;color:#a8190d;font-size:12px;font-weight:600;
         border-radius:6px;padding:0 6px;text-decoration:none}
-    [data-testid="stExpander"] details{border:0;background:#f3f5f8;border-radius:12px}
+    a[href^="#"]:not([href^="#source-"]){color:#df2f1f}
+    [data-testid="stExpander"] details{border:0;background:#f5f5f5;border-radius:12px}
+    [data-testid="stSpinnerIcon"]{border-color:#df2f1f33!important;border-top-color:#df2f1f!important}
     [data-testid="stExpander"] [data-testid="stText"]{font-family:inherit;font-size:14.5px;
         line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
     [data-testid="stExpander"] [data-testid="stMarkdownContainer"] p{font-size:14px}
@@ -384,7 +391,7 @@ with ask_tab:
         for citation in result["citations"]:
             number = int(citation["number"])
             with st.expander(
-                f":blue-background[**{number}**] " + source_label(citation["sources"], bold=True)
+                f":primary-background[**{number}**] " + source_label(citation["sources"], bold=True)
             ):
                 st.html(
                     f'<span id="source-{number}"></span>'
@@ -469,7 +476,7 @@ with rank_tab:
             column_config[key] = column
         st.dataframe(
             candidates[visible_columns].style.set_properties(
-                subset=["sent_to_model", "cited"], color="#1967d2", **{"text-align": "center"}
+                subset=["sent_to_model", "cited"], color="#1f1f1f", **{"text-align": "center"}
             ),
             hide_index=True,
             width="content",
