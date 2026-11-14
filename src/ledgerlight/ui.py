@@ -18,7 +18,7 @@ COMPANIES = {
     "DVN": "Devon Energy",
     "LLY": "Eli Lilly",
     "ET": "Energy Transfer",
-    "EPD": "Enterprise Products Partners",
+    "EPD": "Enterprise Products",
     "EOG": "EOG Resources",
     "XOM": "ExxonMobil",
     "F": "Ford",
@@ -51,7 +51,7 @@ HEADER_HELP = (
 SOURCE_NAVIGATION = """<script>
 if (!window.ledgerlightSourceNavigation) {
   window.ledgerlightSourceNavigation = true;
-  document.addEventListener("click", event => {
+  document.addEventListener("click", async event => {
     if (!(event.target instanceof Element)) return;
     const link = event.target.closest("a");
     if (!link) return;
@@ -62,11 +62,24 @@ if (!window.ledgerlightSourceNavigation) {
     if (!source) return;
     event.preventDefault();
     const details = source.closest("details");
-    if (details && !details.open) details.querySelector("summary")?.click();
-    requestAnimationFrame(() => {
-      location.hash = url.hash;
-      source.scrollIntoView({block: "start"});
-    });
+    if (!details) return;
+    await Promise.allSettled(details.getAnimations().map(animation => animation.finished));
+    if (!details.open) {
+      details.querySelector("summary")?.click();
+    }
+    for (let frame = 0; frame < 120; frame++) {
+      await new Promise(requestAnimationFrame);
+      const content = details.querySelector('[data-testid="stExpanderDetails"]');
+      const summary = details.querySelector("summary");
+      if (details.open && content && !content.inert && summary &&
+          content.getBoundingClientRect().height > 0 &&
+          details.getBoundingClientRect().height + 1 >=
+          summary.getBoundingClientRect().height + content.getBoundingClientRect().height) break;
+    }
+    await Promise.allSettled(details.getAnimations().map(animation => animation.finished));
+    await new Promise(requestAnimationFrame);
+    location.hash = url.hash;
+    details.scrollIntoView({block: "start"});
   });
 }
 </script>"""
@@ -77,8 +90,8 @@ CANDIDATE_COLUMNS = [
     ("cited", "Cited", "The answer cites this passage."),
     (
         "ce_rank",
-        "Cross-encoder rank",
-        "Rank by the cross-encoder, a MiniLM model that reads the question and a passage "
+        "CE rank",
+        "Rank by the cross-encoder (CE), a MiniLM model that reads the question and a passage "
         "window together and outputs one relevance score.",
     ),
     ("rrf_rank", "RRF rank", "Rank after reciprocal rank fusion of the BM25 and dense rankings."),
@@ -94,7 +107,7 @@ CANDIDATE_COLUMNS = [
         "CatBoost score",
         "Output of the CatBoost ranker. Higher is better; only the order matters.",
     ),
-    ("ce", "Cross-encoder score", "Cross-encoder relevance score (logit). Higher is better."),
+    ("ce", "CE score", "Score from the cross-encoder (CE), a relevance logit. Higher is better."),
     (
         "rrf",
         "RRF score",
@@ -138,13 +151,13 @@ def linked_answer(answer, citations):
     labels = {str(c["number"]): f"[{c['number']}] " + source_label(c["sources"]) for c in citations}
 
     def link(match):
-        number = match.group(1)
+        space, number = match.group(1), match.group(2)
         if number not in labels:
             return match.group(0)
         title = labels[number].replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
-        return f'[{number}](#source-{number} "{title}")'
+        return f'{chr(160) if space else ""}[{number}](#source-{number} "{title}")'
 
-    return re.sub(r"\[(\d+)\]", link, answer)
+    return re.sub(r"([ \t]*)\[(\d+)\]", link, answer)
 
 
 def duration(seconds):
@@ -156,7 +169,7 @@ def duration(seconds):
 def passage_body(passage, clipped=False):
     windows = passage.get("windows")
     if windows and not clipped:
-        st.markdown("**Window read by the LLM**")
+        st.markdown("**Excerpt sent to the LLM**")
         st.text("\n\n".join(windows))
         st.markdown("**Full passage**")
     st.text(passage["text"])
@@ -231,6 +244,7 @@ st.html(
     .st-key-answer_stats [data-testid="stCaptionContainer"] p{font-size:13px}
     [data-testid="stTooltipIcon"],[data-testid="stTooltipIcon"] button{color:#5f6368;opacity:1}
     [role="tooltip"] p{margin-bottom:0}
+    [role="tooltip"] [data-testid="stMarkdownContainer"]{margin-bottom:0}
     [role="tooltip"] p+p{margin-top:.5em}
     [data-testid="stTextAreaRootElement"]{background:#fff;border:1px solid #c7cace;
         border-radius:16px;box-shadow:0 2px 8px #1f1f1f0a}
@@ -243,14 +257,10 @@ st.html(
     [data-testid="stExpander"] [data-testid="stText"]{font-family:inherit;font-size:14.5px;
         line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
     [data-testid="stExpander"] [data-testid="stMarkdownContainer"] p{font-size:14px}
+    .st-key-candidate_heading{margin-bottom:2rem}
     .st-key-candidate_heading [data-testid="stHorizontalBlock"]{flex-wrap:nowrap}
     .st-key-candidate_heading [data-testid="stColumn"]:first-child{flex:1;min-width:0}
     .st-key-candidate_heading [data-testid="stColumn"]:last-child{flex:0 0 136px;min-width:0;width:136px}
-    @media(max-width:640px){
-        [data-testid="stMainBlockContainer"]{padding-left:16px;padding-right:16px}
-        [data-testid="stForm"] [data-testid="stHorizontalBlock"]{flex-direction:column;gap:.75rem}
-        [data-testid="stForm"] [data-testid="stColumn"]{width:100%;flex:1 1 auto}
-    }
     </style>"""
 )
 st.title("Ledgerlight")
@@ -387,7 +397,7 @@ with rank_tab:
     result = st.session_state.get("result")
     if result:
         st.caption(
-            "How the answer to your last question was found.",
+            "How the answer was found.",
             help=(
                 "Two retrievers search the passages: BM25 (keyword matching) and dense "
                 "retrieval (BGE-small embeddings in Qdrant). Reciprocal rank fusion (RRF) "
@@ -420,9 +430,9 @@ with rank_tab:
             "LLM context",
             help=(
                 f"The top {sent_count} passages by final rank. Each passage is split into "
-                "overlapping windows of up to 448 tokens. The LLM receives one window per "
-                "passage, the one closest to the question by embedding similarity, not the "
-                "full passage."
+                "overlapping windows of up to 448 tokens. The excerpt sent to the LLM is "
+                "the window closest to the question by embedding similarity, one per "
+                "passage, not the full passage."
             ),
         )
         for rank, passage in enumerate(ranking.get("results", []), 1):
@@ -510,6 +520,15 @@ with rank_tab:
         if line:
             st.write(line)
         with st.expander("All versions"):
-            st.dataframe(versions_table(versions), hide_index=True, width="content")
+            st.dataframe(
+                versions_table(versions),
+                hide_index=True,
+                width="content",
+                height="content",
+                column_config={
+                    "Component": st.column_config.TextColumn(width=140),
+                    "Version": st.column_config.TextColumn(width=548),
+                },
+            )
     else:
         st.write("Ask a question first. This tab shows how its answer was found.")

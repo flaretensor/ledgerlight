@@ -51,7 +51,7 @@ def main():
         return cli("run-code", "async page => { " + code + " }")
 
     def capture(state, segments=True):
-        for width, height in [(1440, 1000), (390, 844)]:
+        for width, height in [(1440, 1000), (1100, 1000)]:
             prefix = "data/pilot/ui-audit/" + state + "-" + str(width)
             metrics = js(
                 f"await page.setViewportSize({{width:{width},height:{height}}});"

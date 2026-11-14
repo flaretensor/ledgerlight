@@ -13,7 +13,7 @@ def ui(monkeypatch):
     st.cache_data.clear()
     health = {
         "filters": {
-            "ticker": ["GM", "ABBV", "ABbV", "JNJ"],
+            "ticker": ["GM", "ABBV", "ABbV", "JNJ", "EPD"],
             "year": ["2024", "2025"],
             "form": ["10-K", "10-Q"],
         }
@@ -98,6 +98,7 @@ def test_ui_copy_sources_and_detail_tables(ui):
     assert app.selectbox[0].options == [
         "All companies",
         "AbbVie (ABBV)",
+        "Enterprise Products (EPD)",
         "General Motors (GM)",
         "Johnson & Johnson (JNJ)",
     ]
@@ -117,6 +118,7 @@ def test_ui_copy_sources_and_detail_tables(ui):
     assert state["requests"][-1]["filters"] == {"ticker": "ABBV"}
     captions = [x.value for x in app.caption]
     assert "1 source · 9.7 s" in captions
+    assert "How the answer was found." in captions
     assert not any(x.startswith(("Question:", "Previous question:")) for x in captions)
     label = "[1] General Motors · Annual report (10-K) · filed 2025 · p. 4–5"
     assert app.expander[0].label == (
@@ -126,7 +128,7 @@ def test_ui_copy_sources_and_detail_tables(ui):
         app.expander[1].label
         == "**1.** **General Motors** · Annual report (10-K) · filed 2025 · p. 4–5 · p0"
     )
-    assert f'[1](#source-1 "{label}")' in app.markdown[0].value
+    assert app.markdown[0].value == f'Revenue rose.\u00a0[1](#source-1 "{label}")'
     assert not app.markdown[0].proto.allow_html
     assert any(x.value.startswith('<span id="source-1"></span>') for x in app.html)
     candidates, timing, versions = [x.value for x in app.dataframe]
@@ -134,6 +136,9 @@ def test_ui_copy_sources_and_detail_tables(ui):
     assert candidates.sent_to_model.tolist() == ["✓", ""]
     assert candidates.cited.tolist() == ["✓", ""]
     assert len(candidates.columns) == 8
+    config = app.dataframe[0].proto.columns
+    assert '"label": "CE rank"' in config
+    assert '"label": "CE score"' in config
     assert not app.toggle[0].value
     assert app.toggle[0].label == "Show scores"
     assert "color: #1967d2" in app.dataframe[0].proto.arrow_data.styler.styles
@@ -201,6 +206,7 @@ def test_ui_copy_sources_and_detail_tables(ui):
         "Synthetic evidence.",
         "Synthetic evidence. Full passage tail.",
     ]
+    assert [x.value for x in app.markdown].count("**Excerpt sent to the LLM**") == 2
     app.toggle[0].set_value(True).run()
     assert len(app.dataframe[0].value.columns) == 13
     assert len(state["requests"]) == 1
@@ -258,7 +264,18 @@ def test_passage_falls_back_when_exact_window_is_unavailable(ui, clipped, missin
     submit(app, "Synthetic question")
     assert not app.exception
     assert [x.value for x in app.text] == ["Synthetic evidence. Full passage tail."] * 2
-    assert not any("Window read by the LLM" in x.value for x in app.markdown)
+    assert not any("Excerpt sent to the LLM" in x.value for x in app.markdown)
+
+
+def test_citation_spacing_preserves_unknown_citations(ui):
+    app, state = ui
+    state["result"]["answer"] = "Known [1]. Unknown  [9]. Tab\t[1]. Adjacent[1]."
+    submit(app, "Synthetic question")
+    answer = app.markdown[0].value
+    assert "Known\u00a0[1](#source-1" in answer
+    assert "Unknown  [9]." in answer
+    assert "Tab\u00a0[1](#source-1" in answer
+    assert "Adjacent[1](#source-1" in answer
 
 
 def test_versions_omit_missing_segments_and_keep_unknown_values(ui):
