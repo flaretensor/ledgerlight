@@ -23,7 +23,6 @@ def main():
             *IDS,
             "filtered",
             "ranking",
-            "versions",
             "source",
             "error",
         ],
@@ -87,16 +86,6 @@ def main():
         js("await page.getByRole('tab',{name:'Search details',exact:true}).click();")
         capture("ranking")
         return
-    if args.action == "versions":
-        js(
-            "await page.getByRole('tab',{name:'Search details',exact:true}).click();"
-            "await page.getByText('Versions',{exact:true}).scrollIntoViewIfNeeded();"
-            "const details=page.getByText('All versions',{exact:true}).locator('xpath=ancestor::details');"
-            "if(!await details.evaluate(e=>e.open))await details.locator('summary').click();"
-        )
-        capture("versions")
-        return
-
     if args.action == "source":
         js(
             "await page.getByRole('tab',{name:'Search details',exact:true}).click();"

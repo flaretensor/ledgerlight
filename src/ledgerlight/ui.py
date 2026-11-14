@@ -1,4 +1,3 @@
-import json
 import os
 import re
 from pathlib import Path
@@ -176,64 +175,6 @@ def passage_body(passage, clipped=False):
     st.text(passage["text"])
 
 
-def version_values(versions, prefix=""):
-    flattened = {}
-    for key, value in versions.items():
-        dotted = f"{prefix}.{key}" if prefix else key
-        if isinstance(value, dict) and value:
-            flattened.update(version_values(value, dotted))
-        else:
-            flattened[dotted] = value
-    return flattened
-
-
-def versions_line(versions):
-    values = version_values(versions)
-    segments = [
-        f"{label} v{values[key]}"
-        for key, label in [
-            ("pipeline", "Pipeline"),
-            ("components.encoder", "encoder"),
-            ("components.cross_encoder", "cross-encoder"),
-        ]
-        if key in values and values[key] is not None
-    ]
-    if values.get("method") is not None and values.get("components.ranker") is not None:
-        segments.append(f"{values['method']} ranker v{values['components.ranker']}")
-    if values.get("backend") is not None:
-        segments.append(str(values["backend"]))
-    return " · ".join(segments)
-
-
-def versions_table(versions):
-    values = version_values(versions)
-    labels = {
-        "pipeline": "Pipeline",
-        "method": "Ranking method",
-        "components.encoder": "Encoder",
-        "components.cross_encoder": "Cross-encoder",
-        "components.ranker": "Ranker",
-        "collection": "Collection",
-        "index": "Index",
-        "backend": "Backend",
-        "llm.revision": "LLM revision",
-        "llm.sha256": "LLM SHA-256",
-        "llm.runtime_build": "LLM runtime build",
-    }
-    rows = []
-    for key in [*labels, *(key for key in values if key not in labels)]:
-        if key not in values:
-            continue
-        value = values[key]
-        value = (
-            json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else str(value)
-        )
-        if key == "llm.sha256":
-            value = value.removeprefix("sha256:")
-        rows.append({"Component": labels.get(key, key), "Version": value})
-    return pd.DataFrame(rows, columns=["Component", "Version"])
-
-
 st.set_page_config(
     page_title="Ledgerlight",
     page_icon=Path(__file__).parent / "assets" / "favicon.png",
@@ -247,6 +188,11 @@ st.html(
     [data-testid="stWidgetLabel"] p,[data-baseweb="select"]{color:#1f1f1f!important;opacity:1}
     [data-testid="stCaptionContainer"] p{font-size:15px}
     .st-key-answer_stats [data-testid="stCaptionContainer"] p{font-size:13px}
+    .st-key-answer_text [data-testid="stMarkdownContainer"]{margin-bottom:0;line-height:1.45}
+    .st-key-answer_text :is(p,ul,ol,li){line-height:1.45}
+    .st-key-answer_text :is(p,ul,ol){margin-bottom:.6rem}
+    .st-key-answer_text [data-testid="stMarkdownContainer"]>:last-child{margin-bottom:0}
+    .st-key-pipeline_line p{text-wrap:balance}
     [data-testid="stTooltipIcon"],[data-testid="stTooltipIcon"] button{color:#5f6368;opacity:1}
     [role="tooltip"] p{margin-bottom:0}
     [role="tooltip"] [data-testid="stMarkdownContainer"]{margin-bottom:0}
@@ -257,13 +203,15 @@ st.html(
         padding:12px 14px}
     [data-testid="stTextArea"] textarea::placeholder{color:#6b7177;opacity:1}
     a[href^="#source-"]{background:#fdecea;color:#a8190d;font-size:12px;font-weight:600;
-        border-radius:6px;padding:0 6px;text-decoration:none}
+        border-radius:6px;padding:0 2px 0 6px;text-decoration:none}
     a[href^="#"]:not([href^="#source-"]){color:#df2f1f}
     [data-testid="stExpander"] details{border:0;background:#f5f5f5;border-radius:12px}
     [data-testid="stSpinnerIcon"]{border-color:#df2f1f33!important;border-top-color:#df2f1f!important}
     [data-testid="stExpander"] [data-testid="stText"]{font-family:inherit;font-size:14.5px;
-        line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
-    [data-testid="stExpander"] [data-testid="stMarkdownContainer"] p{font-size:14px}
+        line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+    [data-testid="stExpander"] [data-testid="stMarkdownContainer"]{margin-bottom:0}
+    [data-testid="stExpander"] [data-testid="stMarkdownContainer"] p{font-size:14px;margin-bottom:0}
+    [data-testid="stExpanderDetails"] [data-testid="stVerticalBlock"]{gap:.4rem}
     .st-key-candidate_heading{margin-bottom:2rem}
     .st-key-candidate_heading [data-testid="stHorizontalBlock"]{flex-wrap:nowrap}
     .st-key-candidate_heading [data-testid="stColumn"]:first-child{flex:1;min-width:0}
@@ -378,9 +326,10 @@ with ask_tab:
                 "No answer found in these reports. Try rephrasing the question or removing filters."
             )
         else:
-            st.markdown(
-                linked_answer(result["answer"], result["citations"]), unsafe_allow_html=False
-            )
+            with st.container(key="answer_text"):
+                st.markdown(
+                    linked_answer(result["answer"], result["citations"]), unsafe_allow_html=False
+                )
         seconds = result["latencies"]["e2e"]
         with st.container(key="answer_stats"):
             if result["abstained"]:
@@ -429,10 +378,11 @@ with rank_tab:
         columns = [key for key, _, _ in CANDIDATE_COLUMNS]
         candidates = candidates.reindex(columns=columns)
         sent_count = len(ranking.get("results", []))
-        st.write(
-            f"BM25 + dense retrieval → RRF: {len(candidates)} candidates → cross-encoder → "
-            f"CatBoost ranker → top {sent_count} → LLM"
-        )
+        with st.container(key="pipeline_line"):
+            st.write(
+                f"BM25 + dense retrieval → RRF: {len(candidates)} candidates → cross-encoder → "
+                f"CatBoost ranker → top {sent_count} → LLM"
+            )
         st.subheader(
             "LLM context",
             help=(
@@ -471,7 +421,10 @@ with rank_tab:
                 column = st.column_config.TextColumn(label, help=help_text, alignment="center")
             else:
                 column = st.column_config.NumberColumn(
-                    label, help=help_text, format="%d" if key.endswith("_rank") else "%.3f"
+                    label,
+                    help=help_text,
+                    format="%d" if key.endswith("_rank") else "%.3f",
+                    alignment="center",
                 )
             column_config[key] = column
         st.dataframe(
@@ -479,7 +432,7 @@ with rank_tab:
                 subset=["sent_to_model", "cited"], color="#1f1f1f", **{"text-align": "center"}
             ),
             hide_index=True,
-            width="content",
+            width="stretch",
             height=400,
             column_order=visible_columns,
             column_config=column_config,
@@ -515,27 +468,5 @@ with rank_tab:
             width="content",
             height="content",
         )
-        st.subheader(
-            "Versions",
-            help=(
-                "Model versions that served this answer. The numbers are versions in the "
-                "local MLflow registry, not model names."
-            ),
-        )
-        versions = ranking.get("versions", {})
-        line = versions_line(versions)
-        if line:
-            st.write(line)
-        with st.expander("All versions"):
-            st.dataframe(
-                versions_table(versions),
-                hide_index=True,
-                width="content",
-                height="content",
-                column_config={
-                    "Component": st.column_config.TextColumn(width=140),
-                    "Version": st.column_config.TextColumn(width=548),
-                },
-            )
     else:
         st.write("Ask a question first. This tab shows how its answer was found.")

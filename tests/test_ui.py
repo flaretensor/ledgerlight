@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import httpx
@@ -131,7 +132,7 @@ def test_ui_copy_sources_and_detail_tables(ui):
     assert app.markdown[0].value == f'Revenue rose.\u00a0[1](#source-1 "{label}")'
     assert not app.markdown[0].proto.allow_html
     assert any(x.value.startswith('<span id="source-1"></span>') for x in app.html)
-    candidates, timing, versions = [x.value for x in app.dataframe]
+    candidates, timing = [x.value for x in app.dataframe]
     assert candidates.passage_id.tolist() == ["p0", "p1"]
     assert candidates.sent_to_model.tolist() == ["✓", ""]
     assert candidates.cited.tolist() == ["✓", ""]
@@ -139,6 +140,22 @@ def test_ui_copy_sources_and_detail_tables(ui):
     config = app.dataframe[0].proto.columns
     assert '"label": "CE rank"' in config
     assert '"label": "CE score"' in config
+    numeric = json.loads(config)
+    assert all(
+        numeric[key]["alignment"] == "center"
+        for key in [
+            "ltr_rank",
+            "ce_rank",
+            "rrf_rank",
+            "bm25_rank",
+            "dense_rank",
+            "ltr",
+            "ce",
+            "rrf",
+            "bm25",
+            "dense",
+        ]
+    )
     assert not app.toggle[0].value
     assert app.toggle[0].label == "Show scores"
     assert "color: #1f1f1f" in app.dataframe[0].proto.arrow_data.styler.styles
@@ -166,39 +183,11 @@ def test_ui_copy_sources_and_detail_tables(ui):
     assert (
         "BM25 + dense retrieval → RRF: 2 candidates → cross-encoder → CatBoost ranker → top 1 → LLM"
     ) in [x.value for x in app.markdown]
-    assert ("Pipeline v3 · encoder v1 · cross-encoder v2 · CatBoost ranker v3 · ort-cuda") in [
-        x.value for x in app.markdown
-    ]
-    assert versions.Component.tolist() == [
-        "Pipeline",
-        "Ranking method",
-        "Encoder",
-        "Cross-encoder",
-        "Ranker",
-        "Collection",
-        "Index",
-        "Backend",
-        "LLM revision",
-        "LLM SHA-256",
-        "LLM runtime build",
-        "extra.nested",
-    ]
-    assert versions.Version.tolist() == [
-        "3",
-        "CatBoost",
-        "1",
-        "2",
-        "3",
-        "synthetic-collection",
-        "trained",
-        "ort-cuda",
-        "complete-revision",
-        "a" * 64,
-        "b12284",
-        "complete-extra-value",
-    ]
-    assert app.expander[-1].label == "All versions"
-    assert not app.expander[-1].proto.expanded
+    assert [x.value for x in app.subheader] == ["LLM context", "Candidates", "Timing"]
+    assert not any(x.label == "All versions" for x in app.expander)
+    assert (
+        app.session_state["result"]["ranking"]["versions"] == state["result"]["ranking"]["versions"]
+    )
     assert not app.get("json")
     assert [x.value for x in app.text] == [
         "Synthetic evidence.",
@@ -278,21 +267,15 @@ def test_citation_spacing_preserves_unknown_citations(ui):
     assert "Adjacent[1](#source-1" in answer
 
 
-def test_versions_omit_missing_segments_and_keep_unknown_values(ui):
+@pytest.mark.parametrize("punctuation", [".", ",", ";", ":"])
+def test_citation_punctuation_and_unknown_markup_are_preserved(ui, punctuation):
     app, state = ui
-    state["result"]["ranking"]["versions"] = {
-        "components": {"encoder": "7"},
-        "extra": {"hash": "b" * 96},
-        "list": ["one", "two"],
-    }
+    state["result"]["answer"] = f"Known [1]{punctuation} Unknown  [9] {punctuation}"
     submit(app, "Synthetic question")
     assert not app.exception
-    assert "encoder v7" in [x.value for x in app.markdown]
-    assert app.dataframe[-1].value.to_dict("records") == [
-        {"Component": "Encoder", "Version": "7"},
-        {"Component": "extra.hash", "Version": "b" * 96},
-        {"Component": "list", "Version": '["one", "two"]'},
-    ]
+    answer = app.markdown[0].value
+    assert "Known\u00a0[1](#source-1" in answer
+    assert f'"){punctuation} Unknown  [9] {punctuation}' in answer
 
 
 def test_source_labels_bold_all_companies_and_keep_model_markup_disabled(ui):
