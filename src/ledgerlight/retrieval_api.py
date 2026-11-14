@@ -10,12 +10,14 @@ from prometheus_client import CONTENT_TYPE_LATEST, Gauge, generate_latest
 from qdrant_client import models
 
 from ledgerlight.api_models import SearchRequest
+from ledgerlight.common import namespace
 from ledgerlight.engine import SearchEngine
 from ledgerlight.observability import ERRORS, REQUESTS, STAGES
 from ledgerlight.registry import PIPELINE_NAME, client, manifest
 
 LOCK = threading.RLock()
 ENGINE = None
+ACTIVE_ALIAS = namespace() + "-active"
 GPU_MEMORY = Gauge("ledgerlight_gpu_memory_used_bytes", "Total GPU memory in use")
 
 
@@ -35,21 +37,20 @@ def refresh():
         )
         aliases = ENGINE.qdrant.get_aliases().aliases
         if any(
-            a.alias_name == "ledgerlight-active" and a.collection_name == ENGINE.collection
-            for a in aliases
+            a.alias_name == ACTIVE_ALIAS and a.collection_name == ENGINE.collection for a in aliases
         ):
             return ENGINE
         operations = []
-        if any(a.alias_name == "ledgerlight-active" for a in aliases):
+        if any(a.alias_name == ACTIVE_ALIAS for a in aliases):
             operations.append(
                 models.DeleteAliasOperation(
-                    delete_alias=models.DeleteAlias(alias_name="ledgerlight-active")
+                    delete_alias=models.DeleteAlias(alias_name=ACTIVE_ALIAS)
                 )
             )
         operations.append(
             models.CreateAliasOperation(
                 create_alias=models.CreateAlias(
-                    collection_name=ENGINE.collection, alias_name="ledgerlight-active"
+                    collection_name=ENGINE.collection, alias_name=ACTIVE_ALIAS
                 )
             )
         )

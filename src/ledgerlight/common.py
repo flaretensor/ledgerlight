@@ -18,6 +18,7 @@ def path(value):
             "data/training/",
             "data/evaluation/",
             "data/registry/",
+            "data/serving/",
             "models/encoder/",
             "models/cross_encoder/",
             "models/ltr/",
@@ -29,6 +30,12 @@ def path(value):
         if any(name == prefix.rstrip("/") or name.startswith(prefix) for prefix in isolated):
             return ROOT / "data/pilot" / name
     return ROOT / value
+
+
+def namespace():
+    return (
+        "ledgerlight-pilot" if os.environ.get("LEDGERLIGHT_RUN_MODE") == "pilot" else "ledgerlight"
+    )
 
 
 def read_json(value):

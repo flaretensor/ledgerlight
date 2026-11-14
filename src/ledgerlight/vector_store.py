@@ -3,7 +3,7 @@ import json
 import numpy as np
 from qdrant_client import QdrantClient, models
 
-from ledgerlight.common import digest, path, read_json, read_jsonl, write_json
+from ledgerlight.common import digest, namespace, path, read_json, read_jsonl, write_json
 
 
 def upload():
@@ -12,8 +12,9 @@ def upload():
     windows = read_jsonl("indices/base/windows.jsonl")
     versions = read_json("data/registry/versions.json")["components"]["encoder"]
     registry = []
-    for index_name, version in zip(["base", "trained"], versions):
-        collection = "ledgerlight-windows-encoder-" + str(version)
+    indices = ["trained"] if namespace() == "ledgerlight-pilot" else ["base", "trained"]
+    for index_name, version in zip(indices, versions, strict=True):
+        collection = namespace() + "-windows-encoder-" + str(version)
         vectors = np.load(path(f"indices/{index_name}/vectors.npy"))
         if not client.collection_exists(collection):
             client.create_collection(

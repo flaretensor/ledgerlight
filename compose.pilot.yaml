@@ -1,0 +1,37 @@
+name: ledgerlight-pilot
+services:
+  mlflow:
+    image: ledgerlight-pilot-smoke:local
+    environment:
+      LEDGERLIGHT_RUN_MODE: pilot
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+  retrieval:
+    image: ledgerlight-pilot-smoke:local
+    environment:
+      LEDGERLIGHT_RUN_MODE: pilot
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      LEDGERLIGHT_BACKEND: ort-cuda
+  llama:
+    image: ledgerlight-pilot-smoke:local
+    environment:
+      LEDGERLIGHT_RUN_MODE: pilot
+  gateway:
+    image: ledgerlight-pilot-smoke:local
+    environment:
+      LEDGERLIGHT_RUN_MODE: pilot
+  ui:
+    image: ledgerlight-pilot-smoke:local
+    environment:
+      LEDGERLIGHT_RUN_MODE: pilot
+  qdrant:
+    environment:
+      QDRANT__STORAGE__STORAGE_PATH: /workspace/data/pilot/runtime/qdrant/storage
+      QDRANT__STORAGE__SNAPSHOTS_PATH: /workspace/data/pilot/runtime/qdrant/snapshots
+  prometheus:
+    command: ["--config.file=/workspace/config/prometheus.pilot.yaml", "--storage.tsdb.path=/workspace/data/pilot/runtime/prometheus", "--web.listen-address=127.0.0.1:9090"]
+  grafana:
+    environment:
+      GF_PATHS_DATA: /workspace/data/pilot/runtime/grafana
+      GF_PATHS_LOGS: /workspace/data/pilot/runtime/grafana-logs

@@ -5,9 +5,9 @@ import mlflow
 import mlflow.pyfunc
 from mlflow import MlflowClient
 
-from ledgerlight.common import path, read_json, write_json
+from ledgerlight.common import namespace, path, read_json, write_json
 
-PIPELINE_NAME = "ledgerlight-pipeline"
+PIPELINE_NAME = namespace() + "-pipeline"
 
 
 class EncoderAdapter(mlflow.pyfunc.PythonModel):
@@ -77,6 +77,7 @@ def resolve_components(config):
         ("cross_encoder", "ledgerlight-cross-encoder", "cross_encoder_path"),
         ("ranker", "ledgerlight-ranker", "ltr_path"),
     ]:
+        model_name = model_name.replace("ledgerlight-", namespace() + "-", 1)
         version = selected.get(key)
         if version is None or key == "cross_encoder" and config["mode"] not in {"ce", "ltr"}:
             continue

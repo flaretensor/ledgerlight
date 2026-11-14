@@ -6,7 +6,7 @@ import bm25s
 import numpy as np
 from qdrant_client import QdrantClient, models
 
-from ledgerlight.common import digest, params, path, read_jsonl
+from ledgerlight.common import digest, namespace, params, path, read_jsonl
 from ledgerlight.features import features, ranks
 from ledgerlight.retrieval import best_windows, cross_scores, load_model, order
 
@@ -84,7 +84,7 @@ class SearchEngine:
             self.ranker.load_model(str(path(config["ltr_path"])))
         self.qdrant = QdrantClient(qdrant_url, timeout=30, check_compatibility=False)
         version = config.get("components", {}).get("encoder", config["index"])
-        self.collection = "ledgerlight-windows-encoder-" + str(version)
+        self.collection = namespace() + "-windows-encoder-" + str(version)
 
     def search(self, question, filters=None, limit=5):
         started = time.perf_counter()
