@@ -197,3 +197,30 @@ def test_test_permission_and_pilot_output_isolation(monkeypatch, tmp_path):
     assert common.path("models/encoder/trial-0") == tmp_path / "data/pilot/models/encoder/trial-0"
     assert common.path("data/optuna.db") == tmp_path / "data/pilot/data/optuna.db"
     assert common.path("data/processed/corpus.jsonl") == tmp_path / "data/processed/corpus.jsonl"
+
+
+def test_ce_training_selects_the_serving_encoder_window():
+    from ledgerlight.retrieval import best_windows
+    from ledgerlight.training import ce_training_examples
+
+    windows = [{"passage_index": 0}, {"passage_index": 0}, {"passage_index": 1}]
+    context = {
+        "lookup": {"q": 0},
+        "qvectors": np.array([[0.0, 1.0]]),
+        "vectors": np.array([[1.0, 0.0], [0.0, 1.0], [0.5, 0.5]]),
+        "windows": windows,
+    }
+    examples = [
+        {
+            "qid": "q",
+            "positive": 0,
+            "positive_window": 0,
+            "negative_passages": [1],
+            "negative_windows": [2],
+        }
+    ]
+    chosen = ce_training_examples(examples, context)[0]
+    served = best_windows(context["qvectors"][0], context["vectors"], windows, [0, 1])
+    assert chosen["positive_window"] == served[0][0] == 1
+    assert chosen["negative_windows"] == [served[1][0]]
+    assert examples[0]["positive_window"] == 0

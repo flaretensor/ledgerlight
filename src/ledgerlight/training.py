@@ -13,6 +13,7 @@ from ledgerlight.common import params, path, read_json, read_jsonl, write_json
 from ledgerlight.data import normalize
 from ledgerlight.evaluation import evaluate, tracking
 from ledgerlight.retrieval import (
+    best_windows,
     embed,
     encode_queries,
     encode_windows,
@@ -302,10 +303,28 @@ def neural_encoder():
     return result
 
 
+def ce_training_examples(examples, context):
+    output = []
+    for item in examples:
+        index = context["lookup"][item["qid"]]
+        parents = [item["positive"], *item["negative_passages"]]
+        selected = best_windows(
+            context["qvectors"][index], context["vectors"], context["windows"], parents
+        )
+        output.append(
+            {
+                **item,
+                "positive_window": selected[0][0],
+                "negative_windows": [group[0] for group in selected[1:]],
+            }
+        )
+    return output
+
+
 def fit_cross_encoder(config, seed, destination):
     seed_everything(seed)
     model = load_model("cross_encoder")
-    examples = read_json("data/training/examples.json")
+    examples = read_json("data/training/ce_examples.json")
     windows = read_jsonl("indices/base/windows.jsonl")
     rng = random.Random(seed)
     pairs = []
@@ -362,7 +381,15 @@ def fit_cross_encoder(config, seed, destination):
 
 def candidate_context(index_name="trained"):
     queries = read_jsonl("data/processed/queries.jsonl")
+    from ledgerlight.common import digest
+
     return {
+        "selector_identity": {
+            "index": index_name,
+            "vectors": digest(path(f"indices/{index_name}/vectors.npy")),
+            "queries": digest(path(f"indices/{index_name}/queries.npy")),
+            "windows": digest(path("indices/base/windows.jsonl")),
+        },
         "queries": queries,
         "lookup": {q["id"]: i for i, q in enumerate(queries)},
         "corpus": read_jsonl("data/processed/corpus.jsonl"),
@@ -379,6 +406,34 @@ def candidate_context(index_name="trained"):
 def score_ce(model, ids, context):
     from ledgerlight.retrieval import cross_scores, fuse, order
 
+    import hashlib
+
+    from ledgerlight.common import digest
+    from ledgerlight.test_access import guard_queries
+
+    guard_queries(ids)
+    model_hash = hashlib.sha256()
+    for key, value in sorted(model.model.state_dict().items()):
+        model_hash.update(key.encode())
+        model_hash.update(value.detach().cpu().contiguous().view(torch.uint8).numpy().tobytes())
+    cache_key = hashlib.sha256(
+        json.dumps(
+            {
+                "selector": context["selector_identity"],
+                "weights": model_hash.hexdigest(),
+                "queries": list(ids),
+                "rrf_k": context["k"],
+                "policy": {
+                    name: digest(path("src/ledgerlight/" + name))
+                    for name in ["training.py", "retrieval.py", "pairs.py", "cross_encoder.py"]
+                },
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    cache_path = f"data/training/cache/ce-{cache_key}.json"
+    if path(cache_path).exists():
+        return read_json(cache_path)
     output = {}
     for number, qid in enumerate(ids):
         index = context["lookup"][qid]
@@ -395,6 +450,7 @@ def score_ce(model, ids, context):
         output[qid] = {"candidates": candidates.tolist(), "scores": scores.tolist()}
         if number % 25 == 0:
             print(json.dumps({"ce_queries": number + 1, "total": len(ids)}), flush=True)
+    write_json(cache_path, output)
     return output
 
 
@@ -416,6 +472,10 @@ def neural_cross_encoder():
     from ledgerlight.retrieval import load_model
 
     context = candidate_context()
+    write_json(
+        "data/training/ce_examples.json",
+        ce_training_examples(read_json("data/training/examples.json"), context),
+    )
     dev = read_json("data/processed/splits.json")["dev"]
     labels = read_json("data/processed/labels.json")
     base = load_model("cross_encoder")
