@@ -1,33 +1,33 @@
 # Ledgerlight
 
-English financial-document retrieval and local cited answers over 5,230 curated FinRank passages, rather than complete SEC filings. This workspace contains a revised pipeline and an isolated TRAIN/DEV pilot. Full retraining, current TEST results, a browser audit and fresh-user deployment verification remain pending.
+English financial-document retrieval and local cited answers over 5,230 curated FinRank passages from 22 companies. These are filing excerpts, not complete SEC reports.
 
 ## Pipeline
 
-BM25 and normalized BGE window embeddings feed RRF, a MiniLM cross-encoder and a 14-feature CatBoost ranker. Five ranked passages contribute one selected window each to local Qwen3.5-2B Q4_K_M. The model returns issued source markers or abstains; citation membership does not establish answer truth.
+BM25 and normalized BGE window embeddings feed reciprocal rank fusion (RRF), a MiniLM cross-encoder and a 14-feature CatBoost learning-to-rank model. Five ranked passages contribute one selected window each to local Qwen3.5-2B Q4_K_M through llama.cpp. Issued source markers become numbered citations; the model can abstain. Citation membership does not establish factual correctness.
 
-Windows preserve original case and punctuation, record token IDs and character offsets, and end at tokenizer pre-token boundaries. Their 448-token limit reserves 64 of the cross-encoder's 512 positions; up to 61 question tokens plus three pair special tokens fit without truncation. Longer questions still require the shared only_second truncation policy. The 128-token overlap follows the common long-context QA convention; this is a heuristic, not a tuned optimum. Boundary snapping can change the exact overlap. BGE indexing/training, CE Torch/ORT/training and Qwen consume the same window text.
+Original-text windows preserve case, punctuation and character offsets. The 448-token limit and 320-token step reserve space in the cross-encoder's 512-token input; long questions use the shared `only_second` truncation policy. CE training and serving select windows using the same selected encoder. The LLM uses an 8,192-token context, a 512-token thinking budget and a 1,024-token total generation limit.
 
-The ranker retains its exact 14-feature order. Year features support FY2024, Q42024 and FY24 (interpreted as 2024). Static company aliases are checked against passages of each original ticker. The source anomaly ABbV remains a distinct metadata value. Year metadata represents the upstream document label and is not independently reconciled to fiscal periods or SEC accessions.
+Training uses the native random split: 948 TRAIN queries partitioned into 712 neural-training queries and 236 LTR-training queries; 118 DEV queries select configurations. Independent Optuna studies run 6 BGE, 6 cross-encoder and 50 CatBoost trials. Source, parameter, dataset and upstream-weight fingerprints protect resume and cache reuse. Sparse qrels leave unjudged candidates with zero targets; only whitespace-equivalent copies of known positives are excluded from training negatives. Documents are shared across splits, so evaluation measures new questions about known documents.
 
-Only whitespace-equivalent copies of known positive passages are removed from negative TRAIN candidates. Other unjudged candidates retain label zero: sparse qrels remain a training limitation. Official evaluation qrels are unchanged.
-
-Explicit ticker tokens must be uppercase; lowercase tickers are not recognised (use the ticker filter). ABBV and ABbV match the same company, while raw source metadata is retained. Company aliases remain case-insensitive.
+Explicit ticker tokens must be uppercase; company aliases are case-insensitive. ABBV and ABbV match AbbVie while raw metadata is retained. `year_match` compares question years with filing-year metadata exactly; filing year can differ from the fiscal year covered.
 
 ## Local setup
 
-Use Python 3.12 and uv. Source scripts/env.sh, then uv sync --frozen. All host caches and temporary files stay inside this workspace. Docker uses project ledgerlight, image ledgerlight-rebuild:local, localhost bindings and restart:no. Its dependency_cache build context is the populated local .cache/uv directory and its python_runtime context is .python, allowing an offline dependency installation. Populate fresh ignored local database/Grafana credentials before services start; never copy credentials or persistent stores from another workspace.
+Use Python 3.12, uv, Docker Compose and a CUDA-capable GPU. Run `source scripts/env.sh` and `uv sync --frozen`. Caches and temporary files use this workspace. Create local database/Grafana credentials from `.env.example`; keep `.env` private. Download the pinned dataset with `python -m ledgerlight.data ingest`, validate it with `python -m ledgerlight.data validate`, and populate the pinned base-model and service caches before offline training. Trained model artifacts are not included in Git.
 
-The pinned llama.cpp b12284 /apply-template and /tokenize endpoints count the actual chat prompt with the same thinking option as generation. Excerpts are trimmed by token budget at whitespace boundaries. Sampling, the 512-token thinking cap, 1024 total output-token cap, SYSTEM text and 8192-token context are unchanged. Live Qwen endpoint verification is separate from the training-only pilot.
+The Compose app image is `ledgerlight-rebuild:local`. Its `dependency_cache` build context uses `.cache/uv`, and `python_runtime` uses `.python`; populate both before an offline image build. Services bind to localhost and use `restart: no`.
 
-## Pilot and held-out protection
+Run `bash scripts/train.sh` for resumable training, DEV selection and registry registration. The nine-method DEV ladder and paired query bootstraps (10,000 resamples, seed 42) are written to `data/evaluation/dev_metrics.json`. TEST questions are withheld from indexing and training. A separate `python -m ledgerlight.final_evaluation --allow-test` requires frozen DEV selection and refuses an existing or previously started TEST run.
 
-Run source scripts/env.sh followed by LEDGERLIGHT_RUN_MODE=pilot python scripts/pilot.py. This uses data/pilot for indices, baseline/training/evaluation/model outputs and Optuna storage; studies and the MLflow experiment/models have pilot-specific names. It evaluates TRAIN/DEV only. Canonical full-run model outputs and studies remain empty. The pilot uses one truncated BGE fit, one truncated CE fit and three CatBoost trials; its metrics establish execution, not final quality.
+Use `python scripts/run_stack.py start` to serve canonical champions at `http://127.0.0.1:8501`; `python scripts/run_stack.py stop` stops PostgreSQL last. The isolated rehearsal uses `LEDGERLIGHT_RUN_MODE=pilot LEDGERLIGHT_EXPERIMENT=rehearsal LEDGERLIGHT_STUDY_SUFFIX=-rehearsal bash scripts/train.sh` and budgets of 24 BGE steps, 32 CE steps and three CatBoost trials. Its artifacts stay under `data/pilot/rehearsal`; its results are execution checks.
 
-The paired window comparison uses pretrained models and the same original-text window builder and CE input policy for both 510/384 and 448/320 settings. It is not a historical binary reproduction. It reports TRAIN and DEV separately and their combined paired bootstrap. A negative upper 95% CI for BGE recall@100 or nDCG@10 in the combined comparison stops training.
+`bash scripts/ci.sh` runs lint, formatting, unit tests, leakage checks and an isolated synthetic CPU pipeline. Local MLflow, Qdrant, PostgreSQL, Prometheus and Grafana support versioning, retrieval, request logging and diagnostics; this is not a production deployment.
 
-Final TEST evaluation requires python -m ledgerlight.final_evaluation --allow-test outside pilot mode. The default DVC evaluate stage deliberately refuses until this explicit action is chosen. scripts/generation_check.py --help is read-only; generation diagnostics default to DEV and also require --allow-test for TEST.
+## Results
 
-## Historical evidence and limits
+Results will be added after the final training run.
 
-[Previous iteration](docs/previous_iteration.json) retains the prior DEV/TEST retrieval ladders and metric hashes. Those numbers describe a different pipeline and are not results of this workspace. No current frozen TEST has run. Shared-document native random splits, sparse qrels and one duplicated TRAIN/TEST question limit interpretation. No independent semantic answer-accuracy or production claim is made.
+## License
+
+Code is licensed under [Apache-2.0](LICENSE). The FinRank dataset is CC BY-NC 4.0, is not redistributed, and is downloaded at pinned commit `916dc27e77b90e294ea1b3a2cc5b0abcf07392d1` with a verified SHA256. Trained weights, when published, will carry CC BY-NC 4.0 metadata. Upstream models and dependencies retain their own licenses.

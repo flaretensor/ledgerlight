@@ -27,7 +27,7 @@ def main():
             "error",
         ],
     )
-    parser.add_argument("--session", default="ledgerlight-validation")
+    parser.add_argument("--session", default="ledgerlight-ui")
     parser.add_argument("--capture-only", action="store_true")
     args = parser.parse_args()
     OUTPUT.mkdir(parents=True, exist_ok=True)

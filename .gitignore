@@ -22,3 +22,6 @@ logs/
 scripts/enable-docker-gpu.sh
 
 .config/
+
+/screenshots/
+/*.png

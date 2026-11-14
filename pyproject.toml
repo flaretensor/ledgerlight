@@ -2,6 +2,7 @@
 name = "ledgerlight"
 version = "0.1.0"
 description = "Local financial document retrieval and cited answers"
+license = "Apache-2.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
  "typer>=0.16,<1",
