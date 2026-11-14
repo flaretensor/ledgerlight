@@ -86,7 +86,7 @@ stages:
     - indices/trained:
         persist: true
   evaluate:
-    cmd: python -m ledgerlight.final_evaluation
+    cmd: python -c 'from ledgerlight.final_evaluation import evaluate_dev; evaluate_dev()'
     deps:
     - data/training
     - data/baselines

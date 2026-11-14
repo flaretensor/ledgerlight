@@ -27,6 +27,27 @@ def pilot():
     return os.environ.get("LEDGERLIGHT_RUN_MODE") == "pilot"
 
 
+def study_name(kind):
+    prefix = "pilot-" if pilot() else ""
+    return prefix + kind + os.environ.get("LEDGERLIGHT_STUDY_SUFFIX", "")
+
+
+def validate_study(study, stage):
+    from ledgerlight.training_identity import training_fingerprint
+
+    fingerprint = training_fingerprint(stage)
+    previous = study.user_attrs.get("training_fingerprint")
+    if previous is not None and previous != fingerprint:
+        raise ValueError(
+            "Study configuration changed; preserve its artifacts and choose a new experiment"
+        )
+    if previous is None and study.trials:
+        raise ValueError("Legacy study has no reproducible training identity")
+    study.set_user_attr("training_fingerprint", fingerprint)
+    for trial in study.get_trials(states=(optuna.trial.TrialState.RUNNING,)):
+        study.tell(trial.number, state=optuna.trial.TrialState.FAIL)
+
+
 def seed_everything(seed):
     random.seed(seed)
     np.random.seed(seed)
@@ -167,7 +188,7 @@ def fit_encoder(config, seed, destination):
             optimizer.step()
             losses.append(float(loss.detach()))
             steps += 1
-            if pilot() and (steps >= 24 or time.monotonic() - started >= 600):
+            if pilot() and steps >= 24:
                 break
             if steps % 50 == 0:
                 print(
@@ -180,7 +201,7 @@ def fit_encoder(config, seed, destination):
                     ),
                     flush=True,
                 )
-        if pilot() and (steps >= 24 or time.monotonic() - started >= 600):
+        if pilot() and steps >= 24:
             break
     model.save_pretrained(str(path(destination)), create_model_card=False)
     seconds = time.monotonic() - started
@@ -226,14 +247,13 @@ def neural_encoder():
     storage = "sqlite:///" + str(path("data/optuna.db"))
     study = optuna.create_study(
         direction="maximize",
-        study_name="pilot-encoder" if pilot() else "encoder",
+        study_name=study_name("encoder"),
         storage=storage,
         sampler=optuna.samplers.TPESampler(seed=42),
         load_if_exists=True,
     )
+    validate_study(study, "encoder")
     trial_limit = 1 if pilot() else 6
-    if history and history[0]["training_seconds"] > 900:
-        trial_limit = 3 if history[0]["training_seconds"] <= 3600 else 1
     for number in range(len(history), trial_limit):
         trial = study.ask()
         config = {
@@ -267,19 +287,11 @@ def neural_encoder():
         gc.collect()
         torch.cuda.empty_cache()
         write_json("data/training/encoder_trials.json", history)
-        if number == 0:
-            if timing["training_seconds"] > 3600:
-                break
-            if timing["training_seconds"] > 900:
-                trial_limit = 3
-        if number + 1 >= trial_limit:
-            break
     best_path = f"models/encoder/trial-{best_trial}"
     seed_metrics = [
         {"seed": 42, **history[[h["trial"] for h in history].index(best_trial)]["metrics"]}
     ]
-    best_time = history[[h["trial"] for h in history].index(best_trial)]["training_seconds"]
-    if best_time < 600 and not pilot():
+    if not pilot():
         for seed in [123, 2026]:
             model, timing = fit_encoder(best_config, seed, f"models/encoder/seed-{seed}")
             metrics = encoder_metrics(model)
@@ -354,7 +366,7 @@ def fit_cross_encoder(config, seed, destination):
             torch.nn.utils.clip_grad_norm_(model.model.parameters(), 1.0)
             optimizer.step()
             losses.append(float(loss.detach()))
-            if pilot() and (len(losses) >= 32 or time.monotonic() - started >= 300):
+            if pilot() and len(losses) >= 32:
                 break
             if len(losses) % 100 == 0:
                 print(
@@ -367,7 +379,7 @@ def fit_cross_encoder(config, seed, destination):
                     ),
                     flush=True,
                 )
-        if pilot() and (len(losses) >= 32 or time.monotonic() - started >= 300):
+        if pilot() and len(losses) >= 32:
             break
     model.model.save_pretrained(str(path(destination)))
     model.tokenizer.save_pretrained(str(path(destination)))
@@ -404,11 +416,10 @@ def candidate_context(index_name="trained"):
 
 
 def score_ce(model, ids, context):
-    from ledgerlight.retrieval import cross_scores, fuse, order
-
     import hashlib
 
     from ledgerlight.common import digest
+    from ledgerlight.retrieval import cross_scores, fuse, order
     from ledgerlight.test_access import guard_queries
 
     guard_queries(ids)
@@ -490,14 +501,22 @@ def neural_cross_encoder():
     torch.cuda.empty_cache()
     study = optuna.create_study(
         direction="maximize",
-        study_name="pilot-cross-encoder" if pilot() else "cross_encoder",
+        study_name=study_name("cross-encoder"),
         storage="sqlite:///" + str(path("data/optuna.db")),
         sampler=optuna.samplers.TPESampler(seed=43),
         load_if_exists=True,
     )
-    history, best_score, selected_trial, selected_config = [], -1, None, None
+    validate_study(study, "cross_encoder")
+    history = (
+        read_json("data/training/ce_trials.json")
+        if path("data/training/ce_trials.json").exists()
+        else []
+    )
+    best = max(history, key=lambda h: h["metrics"]["ndcg@10"]) if history else None
+    best_score = best["metrics"]["ndcg@10"] if best else -1
+    selected_trial, selected_config = (best["trial"], best["config"]) if best else (None, None)
     trial_limit = 1 if pilot() else 6
-    for number in range(trial_limit):
+    for number in range(len(history), trial_limit):
         trial = study.ask()
         config = {
             "lr": trial.suggest_float("lr", 1e-6, 3e-5, log=True),
@@ -529,17 +548,10 @@ def neural_cross_encoder():
         gc.collect()
         torch.cuda.empty_cache()
         write_json("data/training/ce_trials.json", history)
-        if number == 0:
-            if timing["training_seconds"] > 3600:
-                break
-            if timing["training_seconds"] > 900:
-                trial_limit = 3
-        if number + 1 >= trial_limit:
-            break
     best_path = f"models/cross_encoder/trial-{selected_trial}"
     best_entry = next(h for h in history if h["trial"] == selected_trial)
     seed_metrics = [{"seed": 42, **best_entry["metrics"]}]
-    if best_entry["training_seconds"] < 600 and not pilot():
+    if not pilot():
         for seed in [123, 2026]:
             model, timing = fit_cross_encoder(
                 selected_config, seed, f"models/cross_encoder/seed-{seed}"
@@ -688,13 +700,18 @@ def train_ltr():
     labels = read_json("data/processed/labels.json")
     study = optuna.create_study(
         direction="maximize",
-        study_name="pilot-catboost" if pilot() else "catboost",
+        study_name=study_name("catboost"),
         storage="sqlite:///" + str(path("data/optuna.db")),
         sampler=optuna.samplers.TPESampler(seed=44),
         load_if_exists=True,
     )
-    history = []
-    for number in range(3 if pilot() else params()["training"]["catboost_trials"]):
+    validate_study(study, "ranker")
+    history = (
+        read_json("data/training/ltr_trials.json")
+        if path("data/training/ltr_trials.json").exists()
+        else []
+    )
+    for number in range(len(history), 3 if pilot() else params()["training"]["catboost_trials"]):
         trial = study.ask()
         config = {
             "iterations": trial.suggest_int("iterations", 150, 1500, step=50),
@@ -737,7 +754,7 @@ def train_ltr():
         print(json.dumps({"ltr_trial": trial.number, **metrics, "seconds": seconds}), flush=True)
     best = max(history, key=lambda h: h["metrics"]["ndcg@10"])
     seeds = [{"seed": 42, **best["metrics"]}]
-    if best["training_seconds"] < 600 and not pilot():
+    if not pilot():
         for seed in [123, 2026]:
             model = CatBoostRanker(
                 **best["config"],

@@ -1,11 +1,16 @@
 import hashlib
 import json
+import os
 
 from ledgerlight.common import ROOT, digest, params, path, read_json
 
 
 def resolved_parameters():
+    import torch
+
     return {
+        "run_mode": os.environ.get("LEDGERLIGHT_RUN_MODE", "canonical"),
+        "precision": "bfloat16" if torch.cuda.is_bf16_supported() else "float32",
         "params": params(),
         "encoder": {
             "trials": 6,

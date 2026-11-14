@@ -115,6 +115,7 @@ def component_aliases(configuration):
         ("cross_encoder", "ledgerlight-cross-encoder"),
         ("ranker", "ledgerlight-ranker"),
     ]:
+        name = name.replace("ledgerlight-", namespace() + "-", 1)
         version = configuration.get("components", {}).get(key)
         if version is None:
             continue
@@ -168,10 +169,10 @@ def rollback():
     return result
 
 
-def register_all():
+def register_all(*, allow_pilot=False):
     import os
 
-    if os.environ.get("LEDGERLIGHT_RUN_MODE") == "pilot":
+    if os.environ.get("LEDGERLIGHT_RUN_MODE") == "pilot" and not allow_pilot:
         raise PermissionError("Production registration is disabled in pilot mode")
 
     from huggingface_hub import snapshot_download
@@ -184,7 +185,7 @@ def register_all():
     from ledgerlight.common import params
 
     mlflow.set_tracking_uri("http://127.0.0.1:5000")
-    mlflow.set_experiment("ledgerlight")
+    mlflow.set_experiment(namespace())
     c = client()
     components = {}
     for key, config_key, selected_file, adapter in [
@@ -207,24 +208,24 @@ def register_all():
                     name="model",
                     python_model=adapter(),
                     artifacts={"weights": source},
-                    registered_model_name=f"ledgerlight-{key}",
+                    registered_model_name=f"{namespace()}-{key}",
                     code_paths=["src/ledgerlight"],
                     pip_requirements=["sentence-transformers==5.2.3", "torch==2.8.0"],
                 )
             components[key].append(str(info.registered_model_version))
-        c.set_registered_model_alias(f"ledgerlight-{key}", "champion", components[key][-1])
+        c.set_registered_model_alias(f"{namespace()}-{key}", "champion", components[key][-1])
     selected_ltr = read_json("data/training/ltr_selected.json")
     with mlflow.start_run(run_name="register-ranker"):
         info = mlflow.pyfunc.log_model(
             name="model",
             python_model=RankerAdapter(),
             artifacts={"weights": str(path(selected_ltr["path"]))},
-            registered_model_name="ledgerlight-ranker",
+            registered_model_name=namespace() + "-ranker",
             code_paths=["src/ledgerlight"],
             pip_requirements=["catboost>=1.2.8,<1.3"],
         )
     components["ranker"] = str(info.registered_model_version)
-    c.set_registered_model_alias("ledgerlight-ranker", "champion", components["ranker"])
+    c.set_registered_model_alias(namespace() + "-ranker", "champion", components["ranker"])
     freeze = read_json("data/evaluation/freeze.json")
     versions = {}
     for method, configuration in freeze["configurations"].items():

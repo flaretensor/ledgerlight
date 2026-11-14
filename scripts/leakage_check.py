@@ -162,8 +162,10 @@ def full_audit():
             if isinstance(node, ast.Constant) and isinstance(node.value, str)
         }
         assert (
-            "data/training/examples.json" in strings and "data/processed/labels.json" not in strings
-        )
+            "data/training/examples.json"
+            if name == "fit_encoder"
+            else "data/training/ce_examples.json"
+        ) in strings and "data/processed/labels.json" not in strings
     scored = read_json("data/training/ltr_scores.json")
     assert set(scored["train"]) == b and set(scored["dev"]) == set(official["dev"])
     selected = read_json("data/training/ltr_selected.json")

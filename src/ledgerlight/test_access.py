@@ -7,6 +7,10 @@ from ledgerlight.common import path, read_json
 _ALLOWED = ContextVar("held_out_metrics_allowed", default=False)
 
 
+def test_allowed():
+    return _ALLOWED.get()
+
+
 def guard_queries(query_ids):
     if path("data/processed/splits.json").exists():
         test = set(read_json("data/processed/splits.json")["test"])

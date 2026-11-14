@@ -12,7 +12,7 @@ def upload():
     windows = read_jsonl("indices/base/windows.jsonl")
     versions = read_json("data/registry/versions.json")["components"]["encoder"]
     registry = []
-    indices = ["trained"] if namespace() == "ledgerlight-pilot" else ["base", "trained"]
+    indices = ["base", "trained"] if len(versions) == 2 else ["trained"]
     for index_name, version in zip(indices, versions, strict=True):
         collection = namespace() + "-windows-encoder-" + str(version)
         vectors = np.load(path(f"indices/{index_name}/vectors.npy"))

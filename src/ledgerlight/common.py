@@ -25,17 +25,21 @@ def path(value):
             "models/production/",
             "models/onnx/",
             "data/optuna.db",
+            "mlruns/",
         )
         name = str(value)
         if any(name == prefix.rstrip("/") or name.startswith(prefix) for prefix in isolated):
-            return ROOT / "data/pilot" / name
+            experiment = os.environ.get("LEDGERLIGHT_EXPERIMENT", "")
+            return ROOT / "data/pilot" / experiment / name
     return ROOT / value
 
 
 def namespace():
-    return (
+    base = (
         "ledgerlight-pilot" if os.environ.get("LEDGERLIGHT_RUN_MODE") == "pilot" else "ledgerlight"
     )
+    experiment = os.environ.get("LEDGERLIGHT_EXPERIMENT", "")
+    return base + ("-" + experiment if experiment else "")
 
 
 def read_json(value):
@@ -49,6 +53,25 @@ def write_json(value, obj):
 
 
 def read_jsonl(value):
+    if value == "data/processed/queries.jsonl":
+        import re
+
+        from ledgerlight.test_access import test_allowed
+
+        splits = read_json("data/processed/splits.json")
+        allowed = set(splits["train"]) | set(splits["dev"])
+        rows = []
+        with path(value).open("rb") as stream:
+            for line in stream:
+                if not line.strip():
+                    continue
+                qid = json.loads(re.match(rb'\s*\{\s*"id"\s*:\s*("[^"]+")', line)[1])
+                rows.append(
+                    json.loads(line)
+                    if qid in allowed or test_allowed()
+                    else {"id": qid, "question": ""}
+                )
+        return rows
     return [json.loads(line) for line in path(value).read_text().splitlines() if line.strip()]
 
 

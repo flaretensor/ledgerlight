@@ -1,5 +1,4 @@
 import json
-import os
 import re
 import sys
 import time
@@ -42,12 +41,13 @@ def load_model(kind="encoder", model_path=None, device="cuda"):
 
 def active_queries(queries):
     from ledgerlight.common import read_json
+    from ledgerlight.test_access import test_allowed
 
-    if os.environ.get("LEDGERLIGHT_RUN_MODE") == "pilot":
-        splits = read_json("data/processed/splits.json")
-        allowed = set(splits["train"]) | set(splits["dev"])
-        return [(i, q) for i, q in enumerate(queries) if q["id"] in allowed]
-    return list(enumerate(queries))
+    if test_allowed():
+        return list(enumerate(queries))
+    splits = read_json("data/processed/splits.json")
+    allowed = set(splits["train"]) | set(splits["dev"])
+    return [(i, q) for i, q in enumerate(queries) if q["id"] in allowed]
 
 
 def lexical_index():

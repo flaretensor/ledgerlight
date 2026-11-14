@@ -1,11 +1,10 @@
 import json
-import os
 import re
 import time
 
 import numpy as np
 
-from ledgerlight.common import params, path, read_json, read_jsonl, write_json
+from ledgerlight.common import namespace, params, path, read_json, read_jsonl, write_json
 from ledgerlight.retrieval import cross_scores, fuse, load_model, order
 
 METRICS = ["recall@10", "recall@20", "recall@100", "ndcg@10", "mrr"]
@@ -35,9 +34,7 @@ def tracking(name, metrics, parameters, artifact=None):
     import mlflow
 
     mlflow.set_tracking_uri("http://127.0.0.1:5000")
-    experiment = (
-        "ledgerlight-pilot" if os.environ.get("LEDGERLIGHT_RUN_MODE") == "pilot" else "ledgerlight"
-    )
+    experiment = namespace()
     mlflow.set_experiment(experiment)
     with mlflow.start_run(run_name=name) as run:
         mlflow.log_params(parameters)
