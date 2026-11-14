@@ -80,17 +80,17 @@ def main():
         return
     if args.action == "start":
         cli("goto", "http://127.0.0.1:8501")
-        js("await page.getByRole('button',{name:'Find an answer',exact:true}).waitFor();")
+        js("await page.getByRole('button',{name:'Ask',exact:true}).waitFor();")
         capture("empty")
         return
     if args.action == "ranking":
-        js("await page.getByRole('tab',{name:'How it was ranked',exact:true}).click();")
+        js("await page.getByRole('tab',{name:'Search details',exact:true}).click();")
         capture("ranking")
         return
     if args.action == "versions":
         js(
-            "await page.getByRole('tab',{name:'How it was ranked',exact:true}).click();"
-            "await page.getByText('Pipeline versions',{exact:true}).scrollIntoViewIfNeeded();"
+            "await page.getByRole('tab',{name:'Search details',exact:true}).click();"
+            "await page.getByText('Versions',{exact:true}).scrollIntoViewIfNeeded();"
             "const tree=page.locator('[data-testid=stJson]');"
             "while(await tree.locator('.collapsed-icon').count())"
             "await tree.locator('.collapsed-icon').first().click();"
@@ -100,7 +100,7 @@ def main():
 
     if args.action == "source":
         js(
-            "await page.getByRole('tab',{name:'How it was ranked',exact:true}).click();"
+            "await page.getByRole('tab',{name:'Search details',exact:true}).click();"
             "await page.locator('[data-testid=stExpander] summary').first().click();"
         )
         capture("source")
@@ -128,23 +128,23 @@ def main():
     js("await page.getByRole('tab',{name:'Ask',exact:true}).click();")
     if args.action == "filtered":
         js(
-            "await page.getByRole('combobox',{name:'Company ticker',exact:true}).click();"
-            "await page.getByRole('option',{name:'GM',exact:true}).click();"
+            "await page.getByRole('combobox',{name:'Company',exact:true}).click();"
+            "await page.getByRole('option',{name:'General Motors (GM)',exact:true}).click();"
         )
         capture("filter-pending")
     js(
-        "await page.getByRole('textbox',{name:'Ask about the filings',exact:true}).fill("
+        "await page.getByRole('textbox',{name:'Question',exact:true}).fill("
         + json.dumps(question)
         + ");await page.evaluate(()=>{window.__llAudit={start:performance.now(),seen:false,end:null};"
         "const observer=new MutationObserver(()=>{const a=window.__llAudit;"
-        "const loading=document.body.innerText.includes('Reading the sources…');"
-        "const failed=document.body.innerText.includes('A local service could not finish the request.');"
+        "const loading=document.body.innerText.includes('Searching the reports…');"
+        "const failed=document.body.innerText.includes('Something went wrong. Try again in a moment.');"
         "if(loading)a.seen=true;if(((a.seen&&!loading)||failed)&&a.end===null){a.end=performance.now();observer.disconnect();}});"
         "observer.observe(document.body,{subtree:true,childList:true,characterData:true});});"
-        "await page.getByRole('button',{name:'Find an answer',exact:true}).click();"
+        "await page.getByRole('button',{name:'Ask',exact:true}).click();"
     )
     if args.action == "answered":
-        js("await page.getByText('Reading the sources…',{exact:true}).waitFor();")
+        js("await page.getByText('Searching the reports…',{exact:true}).waitFor();")
         capture("loading", segments=False)
     deadline = time.monotonic() + 180
     while time.monotonic() < deadline:

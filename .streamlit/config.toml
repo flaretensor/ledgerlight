@@ -6,10 +6,10 @@ port = 8501
 headless = true
 fileWatcherType = "none"
 [theme]
-primaryColor = "#2563eb"
-backgroundColor = "#f8fafc"
-secondaryBackgroundColor = "#edf2f7"
-textColor = "#172033"
+primaryColor = "#1967d2"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f1f3f4"
+textColor = "#202124"
 font = "sans serif"
 
 [client]
