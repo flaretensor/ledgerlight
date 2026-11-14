@@ -1,3 +1,4 @@
+import json
 import os
 import re
 
@@ -33,14 +34,19 @@ COMPANIES = {
 }
 REPORT_TYPES = {"10-K": "Annual report (10-K)", "10-Q": "Quarterly report (10-Q)"}
 HEADER_HELP = (
-    "Ledgerlight searches 5,230 passages from annual (10-K) and quarterly (10-Q) reports "
-    "that 22 U.S. energy, healthcare, and automotive companies filed with the SEC in "
-    "2022–2025. The passages come from the FinRank dataset.\n\n"
-    "These are excerpts, not complete reports, so some questions can't be answered here. "
+    "The search covers 5,230 passages from annual (10-K) and quarterly (10-Q) reports "
+    "that 22 U.S. energy, healthcare, and automotive companies filed with the U.S. "
+    "Securities and Exchange Commission (SEC) in 2022–2025.\n\n"
+    "The passages come from FinRank, a public retrieval dataset of questions and labeled "
+    "excerpts from these reports. They are excerpts, not complete reports, so some "
+    "questions can't be answered here. "
     "The dataset has no links to the original filings; each source shows the company, "
-    "report type, filing year, and page instead.\n\n"
-    "A small AI model writes the answers and can make mistakes. Check the sources "
-    "before relying on an answer."
+    "report type, filing year, and page instead. Passage text is shown as stored in the "
+    "dataset, including leftover markup.\n\n"
+    "This is a retrieval-augmented generation (RAG) pipeline: BM25 and dense retrieval, "
+    "reciprocal rank fusion, a cross-encoder, a CatBoost ranker, and a small local LLM "
+    "(Qwen3.5-2B) that writes the answer from the top passages. The LLM can make mistakes; "
+    "check the sources. The Search details tab shows each stage."
 )
 SOURCE_NAVIGATION = """<script>
 if (!window.ledgerlightSourceNavigation) {
@@ -65,30 +71,40 @@ if (!window.ledgerlightSourceNavigation) {
 }
 </script>"""
 CANDIDATE_COLUMNS = [
-    ("passage_id", "Passage", "Passage ID in the dataset."),
-    ("ltr_rank", "Final rank", "Position after all steps. 1 is best."),
-    ("sent_to_model", "Used", "The AI model read this passage."),
+    ("passage_id", "Passage", "Passage ID in the FinRank dataset."),
+    ("ltr_rank", "CatBoost rank", "Final rank."),
+    ("sent_to_model", "In context", "The passage was sent to the LLM."),
     ("cited", "Cited", "The answer cites this passage."),
     (
         "ce_rank",
-        "Reranker rank",
-        "Position according to the reranker, a model that reads the question and the passage together.",
+        "Cross-encoder rank",
+        "Rank by the cross-encoder, a MiniLM model that reads the question and a passage "
+        "window together and outputs one relevance score.",
     ),
-    ("rrf_rank", "Combined rank", "Position after merging keyword and semantic search."),
-    ("bm25_rank", "Keyword rank", "Position in keyword search (BM25)."),
-    ("dense_rank", "Semantic rank", "Position in search by meaning (text embeddings)."),
-    ("ltr", "Final score", "Score from the final ranking model (CatBoost). Higher is better."),
-    ("ce", "Reranker score", "Score from the reranker (cross-encoder). Higher is better."),
+    ("rrf_rank", "RRF rank", "Rank after reciprocal rank fusion of the BM25 and dense rankings."),
+    ("bm25_rank", "BM25 rank", "Rank in BM25 keyword retrieval."),
+    (
+        "dense_rank",
+        "Dense rank",
+        "Rank in dense retrieval: embedding similarity between the question and the "
+        "passage's best window (BGE-small).",
+    ),
+    (
+        "ltr",
+        "CatBoost score",
+        "Output of the CatBoost ranker. Higher is better; only the order matters.",
+    ),
+    ("ce", "Cross-encoder score", "Cross-encoder relevance score (logit). Higher is better."),
     (
         "rrf",
-        "Combined score",
-        "Reciprocal rank fusion of the keyword and semantic ranks. Higher is better.",
+        "RRF score",
+        "Sum of reciprocal ranks from BM25 and dense retrieval. Higher is better.",
     ),
-    ("bm25", "Keyword score", "BM25 score. Higher is better."),
+    ("bm25", "BM25 score", "BM25 score. Higher is better."),
     (
         "dense",
-        "Semantic score",
-        "Similarity between the question and the passage. Higher is better.",
+        "Dense score",
+        "Embedding similarity between the question and the passage's best window. Higher is better.",
     ),
 ]
 
@@ -105,12 +121,13 @@ def company_option(ticker):
     return ticker
 
 
-def source_label(sources):
+def source_label(sources, bold=False):
     labels = []
     for source in sources:
         page = re.sub(r"(?<=\d)\s*[-–—]\s*(?=\d)", "–", str(source["page"]))
+        company = company_name(source["ticker"])
         labels.append(
-            f"{company_name(source['ticker'])} · "
+            f"{'**' + company + '**' if bold else company} · "
             f"{REPORT_TYPES.get(source['form'], source['form'])} · "
             f"filed {source['year']} · p. {page}"
         )
@@ -125,22 +142,116 @@ def linked_answer(answer, citations):
         if number not in labels:
             return match.group(0)
         title = labels[number].replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
-        return f'[[{number}]](#source-{number} "{title}")'
+        return f'[{number}](#source-{number} "{title}")'
 
     return re.sub(r"\[(\d+)\]", link, answer)
 
 
 def duration(seconds):
+    if seconds < 0.001:
+        return "<1 ms"
     return f"{seconds * 1000:.0f} ms" if seconds < 1 else f"{seconds:.1f} s"
 
 
-st.set_page_config(page_title="Ledgerlight", page_icon="📑", layout="wide")
+def passage_body(passage, clipped=False):
+    windows = passage.get("windows")
+    if windows and not clipped:
+        st.markdown("**Window read by the LLM**")
+        st.text("\n\n".join(windows))
+        st.markdown("**Full passage**")
+    st.text(passage["text"])
+
+
+def version_values(versions, prefix=""):
+    flattened = {}
+    for key, value in versions.items():
+        dotted = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict) and value:
+            flattened.update(version_values(value, dotted))
+        else:
+            flattened[dotted] = value
+    return flattened
+
+
+def versions_line(versions):
+    values = version_values(versions)
+    segments = [
+        f"{label} v{values[key]}"
+        for key, label in [
+            ("pipeline", "Pipeline"),
+            ("components.encoder", "encoder"),
+            ("components.cross_encoder", "cross-encoder"),
+        ]
+        if key in values and values[key] is not None
+    ]
+    if values.get("method") is not None and values.get("components.ranker") is not None:
+        segments.append(f"{values['method']} ranker v{values['components.ranker']}")
+    if values.get("backend") is not None:
+        segments.append(str(values["backend"]))
+    return " · ".join(segments)
+
+
+def versions_table(versions):
+    values = version_values(versions)
+    labels = {
+        "pipeline": "Pipeline",
+        "method": "Ranking method",
+        "components.encoder": "Encoder",
+        "components.cross_encoder": "Cross-encoder",
+        "components.ranker": "Ranker",
+        "collection": "Collection",
+        "index": "Index",
+        "backend": "Backend",
+        "llm.revision": "LLM revision",
+        "llm.sha256": "LLM SHA-256",
+        "llm.runtime_build": "LLM runtime build",
+    }
+    rows = []
+    for key in [*labels, *(key for key in values if key not in labels)]:
+        if key not in values:
+            continue
+        value = values[key]
+        value = (
+            json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else str(value)
+        )
+        if key == "llm.sha256":
+            value = value.removeprefix("sha256:")
+        rows.append({"Component": labels.get(key, key), "Version": value})
+    return pd.DataFrame(rows, columns=["Component", "Version"])
+
+
+st.set_page_config(page_title="Ledgerlight", page_icon="🔎", layout="centered")
 st.html(
-    "<style>"
-    '[data-testid="stMainBlockContainer"]{padding-top:2rem;padding-bottom:2rem}'
-    '[data-testid="stCaptionContainer"] p,[role="tooltip"] p{color:#5f6368!important}'
-    '[data-testid="stTextArea"] textarea::placeholder{color:#80868b;opacity:1}'
-    "</style>"
+    """<style>
+    [data-testid="stMainBlockContainer"]{max-width:768px;padding:3rem 24px 2rem}
+    [data-testid="stCaptionContainer"],[data-testid="stCaptionContainer"] p,
+    [role="tooltip"], [role="tooltip"] p,
+    [data-testid="stWidgetLabel"] p,[data-baseweb="select"]{color:#1f1f1f!important;opacity:1}
+    [data-testid="stCaptionContainer"] p{font-size:15px}
+    .st-key-answer_stats [data-testid="stCaptionContainer"] p{font-size:13px}
+    [data-testid="stTooltipIcon"],[data-testid="stTooltipIcon"] button{color:#5f6368;opacity:1}
+    [role="tooltip"] p{margin-bottom:0}
+    [role="tooltip"] p+p{margin-top:.5em}
+    [data-testid="stTextAreaRootElement"]{background:#fff;border:1px solid #c7cace;
+        border-radius:16px;box-shadow:0 2px 8px #1f1f1f0a}
+    [data-testid="stTextArea"] textarea{font-size:17px;background:transparent;border:0;
+        padding:12px 14px}
+    [data-testid="stTextArea"] textarea::placeholder{color:#6b7177;opacity:1}
+    a[href^="#source-"]{background:#e8f0fe;color:#174ea6;font-size:12px;font-weight:600;
+        border-radius:6px;padding:0 6px;text-decoration:none}
+    [data-testid="stExpander"] details{border:0;background:#f3f5f8;border-radius:12px}
+    [data-testid="stExpander"] [data-testid="stText"]{font-family:inherit;font-size:14.5px;
+        line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
+    [data-testid="stExpander"] [data-testid="stMarkdownContainer"] p{font-size:14px}
+    .st-key-candidate_heading [data-testid="stHorizontalBlock"]{flex-wrap:nowrap}
+    .st-key-candidate_heading [data-testid="stColumn"]:first-child{flex:1;min-width:0}
+    .st-key-candidate_heading [data-testid="stColumn"]:last-child{flex:0 0 136px;min-width:0;width:136px}
+    @media(max-width:640px){
+        [data-testid="stMainBlockContainer"]{padding-left:16px;padding-right:16px}
+        [data-testid="stForm"] [data-testid="stHorizontalBlock"]{flex-direction:column;gap:.75rem}
+        [data-testid="stForm"] [data-testid="stColumn"]{width:100%;flex:1 1 auto}
+    }
+    </style>"""
 )
 st.title("Ledgerlight")
 st.caption(
@@ -159,62 +270,71 @@ def metadata():
 try:
     health = metadata()
 except httpx.HTTPError:
-    st.info("Ledgerlight is still starting. Refresh this page in a minute.")
+    st.info("The app is still starting. Refresh this page in a minute.")
     st.stop()
-
-with st.sidebar:
-    st.subheader("Filters")
-    filters = {}
-    tickers = sorted(
-        {"ABBV" if ticker.upper() == "ABBV" else ticker for ticker in health["filters"]["ticker"]},
-        key=lambda ticker: company_name(ticker).casefold(),
-    )
-    ticker = st.selectbox(
-        "Company",
-        [None, *tickers],
-        format_func=company_option,
-        help="Search one company's reports only. Useful when your question doesn't name the company.",
-    )
-    if ticker is not None:
-        filters["ticker"] = ticker
-    form = st.selectbox(
-        "Report type",
-        [None, *REPORT_TYPES],
-        format_func=lambda value: "All types" if value is None else REPORT_TYPES[value],
-        help=(
-            "U.S. public companies file a 10-K once a year and a shorter 10-Q after each "
-            "of the other three quarters. Annual reports have the most detail."
-        ),
-    )
-    if form is not None:
-        filters["form"] = form
-    year = st.selectbox(
-        "Filing year",
-        [None, *health["filters"]["year"]],
-        format_func=lambda value: "All years" if value is None else value,
-        help=(
-            "The year the report was filed, not the year it covers. An annual report for "
-            "2024 is usually filed in early 2025, so choose 2025 to find it. The dataset "
-            "estimates the year for a few reports."
-        ),
-    )
-    if year is not None:
-        filters["year"] = year
 
 ask_tab, rank_tab = st.tabs(["Ask", "Search details"])
 with ask_tab:
-    with st.form("ask_form"):
+    with st.form("ask_form", border=False):
         question = st.text_area(
             "Question",
             label_visibility="collapsed",
-            height=100,
+            height=80,
             max_chars=2000,
             placeholder=(
                 "Ask in English, e.g., What factors influence the incentives GM uses to "
                 "promote its products?"
             ),
         )
-        submitted = st.form_submit_button("Ask", type="primary")
+        company_col, form_col, year_col, submit_col = st.columns(
+            [2.4, 2.2, 1.5, 0.7], vertical_alignment="bottom", gap="small"
+        )
+        with company_col:
+            ticker = st.selectbox(
+                "Company",
+                [
+                    None,
+                    *sorted(
+                        {"ABBV" if t.upper() == "ABBV" else t for t in health["filters"]["ticker"]},
+                        key=lambda t: company_name(t).casefold(),
+                    ),
+                ],
+                format_func=company_option,
+                help=(
+                    "Search one company's reports only. Useful when your question doesn't "
+                    "name the company. The code in parentheses is the company's stock ticker."
+                ),
+            )
+        with form_col:
+            form = st.selectbox(
+                "Report type",
+                [None, *REPORT_TYPES],
+                format_func=lambda value: "All types" if value is None else REPORT_TYPES[value],
+                help=(
+                    "U.S. public companies file a 10-K once a year and a shorter 10-Q after "
+                    "each of the other three quarters. Annual reports have the most detail."
+                ),
+            )
+        with year_col:
+            year = st.selectbox(
+                "Filing year",
+                [None, *health["filters"]["year"]],
+                format_func=lambda value: "All years" if value is None else value,
+                help=(
+                    "The year the report was filed, not the year it covers. An annual report "
+                    "for 2024 is usually filed in early 2025, so choose 2025 to find it. "
+                    "The dataset estimates the year for a few reports."
+                ),
+            )
+        with submit_col:
+            submitted = st.form_submit_button("Ask", type="primary")
+    filters = {}
+    if ticker is not None:
+        filters["ticker"] = ticker
+    if form is not None:
+        filters["form"] = form
+    if year is not None:
+        filters["year"] = year
     if submitted and not question.strip():
         st.session_state["previous_result"] = True
         st.warning("Enter a question first.")
@@ -236,8 +356,6 @@ with ask_tab:
     if result:
         if st.session_state.get("previous_result", False):
             st.caption(f"Previous question: {st.session_state['question']}")
-        if filters != st.session_state["filters"]:
-            st.info("Filters changed. Click Ask to update the answer.")
         if result["abstained"]:
             st.info(
                 "No answer found in these reports. Try rephrasing the question or removing filters."
@@ -247,20 +365,23 @@ with ask_tab:
                 linked_answer(result["answer"], result["citations"]), unsafe_allow_html=False
             )
         seconds = result["latencies"]["e2e"]
-        if result["abstained"]:
-            st.caption(f"{seconds:.1f} s")
-        else:
-            count = len(result["citations"])
-            st.caption(f"{count} {'source' if count == 1 else 'sources'} · {seconds:.1f} s")
+        with st.container(key="answer_stats"):
+            if result["abstained"]:
+                st.caption(f"{seconds:.1f} s")
+            else:
+                count = len(result["citations"])
+                st.caption(f"{count} {'source' if count == 1 else 'sources'} · {seconds:.1f} s")
         for citation in result["citations"]:
             number = int(citation["number"])
-            with st.expander(f"[{number}] " + source_label(citation["sources"])):
+            with st.expander(
+                f":blue-background[**{number}**] " + source_label(citation["sources"], bold=True)
+            ):
                 st.html(
                     f'<span id="source-{number}"></span>'
                     + (SOURCE_NAVIGATION if number == 1 else ""),
                     unsafe_allow_javascript=number == 1,
                 )
-                st.text(citation["text"])
+                passage_body(citation, result.get("generation", {}).get("context_clipped", False))
 
 with rank_tab:
     result = st.session_state.get("result")
@@ -268,9 +389,12 @@ with rank_tab:
         st.caption(
             "How the answer to your last question was found.",
             help=(
-                "Ledgerlight first picks 100 candidate passages using keyword search and "
-                "semantic search (search by meaning). Two ranking models then reorder them. "
-                "The AI model reads the top 5 and writes the answer."
+                "Two retrievers search the passages: BM25 (keyword matching) and dense "
+                "retrieval (BGE-small embeddings in Qdrant). Reciprocal rank fusion (RRF) "
+                "merges their rankings into one candidate list. A cross-encoder scores each "
+                "question–passage pair, and a CatBoost learning-to-rank model produces the "
+                "final order from all of these signals. The LLM (Qwen3.5-2B) reads the top "
+                "passages and writes the answer."
             ),
         )
         ranking = result["ranking"]
@@ -283,55 +407,82 @@ with rank_tab:
         candidates["sent_to_model"] = candidates["passage_id"].isin(evidence)
         cited = {item["passage_id"] for item in result["citations"]}
         candidates["cited"] = candidates["passage_id"].isin(cited)
+        for key in ["sent_to_model", "cited"]:
+            candidates[key] = candidates[key].map({True: "✓", False: ""})
         columns = [key for key, _, _ in CANDIDATE_COLUMNS]
         candidates = candidates.reindex(columns=columns)
+        sent_count = len(ranking.get("results", []))
+        st.write(
+            f"BM25 + dense retrieval → RRF: {len(candidates)} candidates → cross-encoder → "
+            f"CatBoost ranker → top {sent_count} → LLM"
+        )
         st.subheader(
-            "Passages used for the answer",
+            "LLM context",
             help=(
-                "The AI model read one excerpt from each of these passages. "
-                "Open a passage to see its full text."
+                f"The top {sent_count} passages by final rank. Each passage is split into "
+                "overlapping windows of up to 448 tokens. The LLM receives one window per "
+                "passage, the one closest to the question by embedding similarity, not the "
+                "full passage."
             ),
         )
         for rank, passage in enumerate(ranking.get("results", []), 1):
             if passage.get("text"):
-                label = f"{rank}. {source_label(passage['sources'])} · {passage['passage_id']}"
+                label = (
+                    f"**{rank}.** {source_label(passage['sources'], bold=True)} · "
+                    f"{passage['passage_id']}"
+                )
                 with st.expander(label):
-                    st.text(passage["text"])
-        sent_count = len(ranking.get("results", []))
-        st.subheader(
-            "Candidates",
-            help=f"All {len(candidates)} passages the search considered, best first. "
-            f"The top {sent_count} were used for the answer.",
-        )
+                    passage_body(
+                        passage, result.get("generation", {}).get("context_clipped", False)
+                    )
+        with st.container(key="candidate_heading"):
+            heading_col, scores_col = st.columns([3, 1], vertical_alignment="center")
+            with heading_col:
+                st.subheader(
+                    "Candidates",
+                    help=f"The {len(candidates)} candidates after rank fusion, ordered by final "
+                    f"rank. The top {sent_count} went to the LLM.",
+                )
+            with scores_col:
+                show_scores = st.toggle("Show scores", value=False)
+        visible_columns = columns if show_scores else columns[:8]
         column_config = {}
         for key, label, help_text in CANDIDATE_COLUMNS:
             if key == "passage_id":
                 column = st.column_config.TextColumn(label, help=help_text)
             elif key in {"sent_to_model", "cited"}:
-                column = st.column_config.CheckboxColumn(label, help=help_text)
+                column = st.column_config.TextColumn(label, help=help_text, alignment="center")
             else:
                 column = st.column_config.NumberColumn(
                     label, help=help_text, format="%d" if key.endswith("_rank") else "%.3f"
                 )
             column_config[key] = column
         st.dataframe(
-            candidates,
+            candidates[visible_columns].style.set_properties(
+                subset=["sent_to_model", "cited"], color="#1967d2", **{"text-align": "center"}
+            ),
             hide_index=True,
-            width="stretch",
+            width="content",
             height=400,
-            column_order=columns,
+            column_order=visible_columns,
             column_config=column_config,
         )
-        st.subheader("Timing")
+        st.subheader(
+            "Timing",
+            help=(
+                "Wall-clock time of each stage for this request. Retrieval total covers "
+                "the five stages above it; Total also includes LLM generation."
+            ),
+        )
         timings = ranking["latencies"]
         steps = [
-            ("Keyword search", timings.get("bm25")),
-            ("Question embedding", timings.get("embed")),
-            ("Semantic search", timings.get("qdrant")),
-            ("Reranker", timings.get("ce")),
-            ("Final ranking", timings.get("ltr")),
-            ("Search total", timings.get("e2e")),
-            ("Writing the answer", result["latencies"].get("generation")),
+            ("BM25", timings.get("bm25")),
+            ("Query embedding", timings.get("embed")),
+            ("Dense retrieval", timings.get("qdrant")),
+            ("Cross-encoder", timings.get("ce")),
+            ("CatBoost ranker", timings.get("ltr")),
+            ("Retrieval total", timings.get("e2e")),
+            ("LLM generation", result["latencies"].get("generation")),
             ("Total", result["latencies"].get("e2e")),
         ]
         st.dataframe(
@@ -344,12 +495,21 @@ with rank_tab:
                 columns=["Step", "Time"],
             ),
             hide_index=True,
-            width="stretch",
+            width="content",
             height="content",
         )
         st.subheader(
-            "Versions", help="The model, index, and runtime versions that produced this answer."
+            "Versions",
+            help=(
+                "Model versions that served this answer. The numbers are versions in the "
+                "local MLflow registry, not model names."
+            ),
         )
-        st.json(result["ranking"]["versions"], expanded=False)
+        versions = ranking.get("versions", {})
+        line = versions_line(versions)
+        if line:
+            st.write(line)
+        with st.expander("All versions"):
+            st.dataframe(versions_table(versions), hide_index=True, width="content")
     else:
-        st.info("Ask a question first. This tab shows how its answer was found.")
+        st.write("Ask a question first. This tab shows how its answer was found.")

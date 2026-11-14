@@ -91,9 +91,8 @@ def main():
         js(
             "await page.getByRole('tab',{name:'Search details',exact:true}).click();"
             "await page.getByText('Versions',{exact:true}).scrollIntoViewIfNeeded();"
-            "const tree=page.locator('[data-testid=stJson]');"
-            "while(await tree.locator('.collapsed-icon').count())"
-            "await tree.locator('.collapsed-icon').first().click();"
+            "const details=page.getByText('All versions',{exact:true}).locator('xpath=ancestor::details');"
+            "if(!await details.evaluate(e=>e.open))await details.locator('summary').click();"
         )
         capture("versions")
         return

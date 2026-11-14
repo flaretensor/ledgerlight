@@ -8,9 +8,15 @@ fileWatcherType = "none"
 [theme]
 primaryColor = "#1967d2"
 backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f1f3f4"
-textColor = "#202124"
-font = "sans serif"
+secondaryBackgroundColor = "#f3f5f8"
+textColor = "#1f1f1f"
+font = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+headingFontSizes = ["1.375rem", "1.125rem", "1.125rem"]
+headingFontWeights = [650, 600, 600]
+baseRadius = "10px"
+buttonRadius = "full"
+dataframeHeaderTextColor = "#1f1f1f"
+dataframeBorderColor = "#c7cace"
 
 [client]
-toolbarMode = "viewer"
+toolbarMode = "minimal"

@@ -19,7 +19,12 @@ def ui(monkeypatch):
         }
     }
     source = {"ticker": "GM", "form": "10-K", "year": "2025", "page": "4-5"}
-    passage = {"passage_id": "p0", "sources": [source], "text": "Synthetic evidence."}
+    passage = {
+        "passage_id": "p0",
+        "sources": [source],
+        "text": "Synthetic evidence. Full passage tail.",
+        "windows": ["Synthetic evidence."],
+    }
     state = {
         "fail": False,
         "requests": [],
@@ -28,6 +33,7 @@ def ui(monkeypatch):
             "abstained": False,
             "citations": [{"number": 1, **passage}],
             "latencies": {"e2e": 9.74, "generation": 8.0},
+            "generation": {"context_clipped": False},
             "ranking": {
                 "results": [passage],
                 "trace": [
@@ -35,7 +41,7 @@ def ui(monkeypatch):
                     {"passage_id": "p0", "ltr_rank": 1, "ltr": 0.98765},
                 ],
                 "latencies": {
-                    "bm25": 0.004,
+                    "bm25": 0.0004,
                     "embed": 0.745,
                     "qdrant": 0.2,
                     "ce": 0.5,
@@ -45,7 +51,20 @@ def ui(monkeypatch):
                     "registry": 0.1,
                     "total": 1.0,
                 },
-                "versions": {"pipeline": "synthetic"},
+                "versions": {
+                    "pipeline": "3",
+                    "method": "CatBoost",
+                    "components": {"encoder": "1", "cross_encoder": "2", "ranker": "3"},
+                    "collection": "synthetic-collection",
+                    "index": "trained",
+                    "backend": "ort-cuda",
+                    "llm": {
+                        "revision": "complete-revision",
+                        "sha256": "sha256:" + "a" * 64,
+                        "runtime_build": "b12284",
+                    },
+                    "extra": {"nested": "complete-extra-value"},
+                },
             },
         },
     }
@@ -85,8 +104,14 @@ def test_ui_copy_sources_and_detail_tables(ui):
     assert app.text_area[0].label == "Question"
     assert len(app.caption[0].proto.help.split("\n\n")) == 3
     assert [t.label for t in app.tabs] == ["Ask", "Search details"]
-    assert app.info[0].value == "Ask a question first. This tab shows how its answer was found."
-    app.selectbox[0].select("ABBV").run()
+    assert not app.sidebar.selectbox
+    assert len(app.get("form")[0].get("selectbox")) == 3
+    assert not app.get("form")[0].proto.form.border
+    assert "Ask a question first. This tab shows how its answer was found." in [
+        x.value for x in app.markdown
+    ]
+    assert not app.info
+    app.selectbox[0].select("ABBV")
     submit(app, "Synthetic financial question")
     assert not app.exception
     assert state["requests"][-1]["filters"] == {"ticker": "ABBV"}
@@ -94,31 +119,37 @@ def test_ui_copy_sources_and_detail_tables(ui):
     assert "1 source · 9.7 s" in captions
     assert not any(x.startswith(("Question:", "Previous question:")) for x in captions)
     label = "[1] General Motors · Annual report (10-K) · filed 2025 · p. 4–5"
-    assert app.expander[0].label == label
+    assert app.expander[0].label == (
+        ":blue-background[**1**] **General Motors** · Annual report (10-K) · filed 2025 · p. 4–5"
+    )
     assert (
         app.expander[1].label
-        == "1. General Motors · Annual report (10-K) · filed 2025 · p. 4–5 · p0"
+        == "**1.** **General Motors** · Annual report (10-K) · filed 2025 · p. 4–5 · p0"
     )
-    assert f'[[1]](#source-1 "{label}")' in app.markdown[0].value
+    assert f'[1](#source-1 "{label}")' in app.markdown[0].value
     assert not app.markdown[0].proto.allow_html
     assert any(x.value.startswith('<span id="source-1"></span>') for x in app.html)
-    candidates, timing = [x.value for x in app.dataframe]
+    candidates, timing, versions = [x.value for x in app.dataframe]
     assert candidates.passage_id.tolist() == ["p0", "p1"]
-    assert candidates.sent_to_model.tolist() == [True, False]
-    assert candidates.cited.tolist() == [True, False]
+    assert candidates.sent_to_model.tolist() == ["✓", ""]
+    assert candidates.cited.tolist() == ["✓", ""]
+    assert len(candidates.columns) == 8
+    assert not app.toggle[0].value
+    assert app.toggle[0].label == "Show scores"
+    assert "color: #1967d2" in app.dataframe[0].proto.arrow_data.styler.styles
     assert not {"ticker", "year", "form"} & set(candidates.columns)
     assert timing.Step.tolist() == [
-        "Keyword search",
-        "Question embedding",
-        "Semantic search",
-        "Reranker",
-        "Final ranking",
-        "Search total",
-        "Writing the answer",
+        "BM25",
+        "Query embedding",
+        "Dense retrieval",
+        "Cross-encoder",
+        "CatBoost ranker",
+        "Retrieval total",
+        "LLM generation",
         "Total",
     ]
     assert timing.Time.tolist() == [
-        "4 ms",
+        "<1 ms",
         "745 ms",
         "200 ms",
         "500 ms",
@@ -127,6 +158,52 @@ def test_ui_copy_sources_and_detail_tables(ui):
         "8.0 s",
         "9.7 s",
     ]
+    assert (
+        "BM25 + dense retrieval → RRF: 2 candidates → cross-encoder → CatBoost ranker → top 1 → LLM"
+    ) in [x.value for x in app.markdown]
+    assert ("Pipeline v3 · encoder v1 · cross-encoder v2 · CatBoost ranker v3 · ort-cuda") in [
+        x.value for x in app.markdown
+    ]
+    assert versions.Component.tolist() == [
+        "Pipeline",
+        "Ranking method",
+        "Encoder",
+        "Cross-encoder",
+        "Ranker",
+        "Collection",
+        "Index",
+        "Backend",
+        "LLM revision",
+        "LLM SHA-256",
+        "LLM runtime build",
+        "extra.nested",
+    ]
+    assert versions.Version.tolist() == [
+        "3",
+        "CatBoost",
+        "1",
+        "2",
+        "3",
+        "synthetic-collection",
+        "trained",
+        "ort-cuda",
+        "complete-revision",
+        "a" * 64,
+        "b12284",
+        "complete-extra-value",
+    ]
+    assert app.expander[-1].label == "All versions"
+    assert not app.expander[-1].proto.expanded
+    assert not app.get("json")
+    assert [x.value for x in app.text] == [
+        "Synthetic evidence.",
+        "Synthetic evidence. Full passage tail.",
+        "Synthetic evidence.",
+        "Synthetic evidence. Full passage tail.",
+    ]
+    app.toggle[0].set_value(True).run()
+    assert len(app.dataframe[0].value.columns) == 13
+    assert len(state["requests"]) == 1
 
 
 def test_previous_question_survives_failed_and_empty_submit(ui):
@@ -136,14 +213,17 @@ def test_previous_question_survives_failed_and_empty_submit(ui):
     submit(app, "Failed question")
     assert app.error[0].value == "Something went wrong. Try again in a moment."
     assert "Previous question: First question" in [x.value for x in app.caption]
-    app.selectbox[0].select("GM").run()
+    app.selectbox[0].select("GM")
     assert len(state["requests"]) == 2
-    assert "Filters changed. Click Ask to update the answer." in [x.value for x in app.info]
+    assert not app.info
+    assert app.session_state["filters"] == {}
     submit(app, "")
     assert app.warning[0].value == "Enter a question first."
     assert "Previous question: First question" in [x.value for x in app.caption]
     state["fail"] = False
     submit(app, "New question")
+    assert state["requests"][-1]["filters"] == {"ticker": "GM"}
+    assert app.session_state["filters"] == {"ticker": "GM"}
     assert not any(x.value.startswith("Previous question:") for x in app.caption)
     assert not app.exception
 
@@ -163,6 +243,55 @@ def test_abstention_has_one_message_and_startup_failure_has_exact_copy(ui, monke
 
     monkeypatch.setattr(httpx, "get", unavailable)
     app = AppTest.from_file(str(APP)).run()
-    assert app.info[0].value == "Ledgerlight is still starting. Refresh this page in a minute."
+    assert app.info[0].value == "The app is still starting. Refresh this page in a minute."
     assert not app.text_area
     assert not app.exception
+
+
+@pytest.mark.parametrize("clipped,missing", [(True, False), (False, True)])
+def test_passage_falls_back_when_exact_window_is_unavailable(ui, clipped, missing):
+    app, state = ui
+    state["result"]["generation"]["context_clipped"] = clipped
+    if missing:
+        for item in [*state["result"]["citations"], *state["result"]["ranking"]["results"]]:
+            item.pop("windows", None)
+    submit(app, "Synthetic question")
+    assert not app.exception
+    assert [x.value for x in app.text] == ["Synthetic evidence. Full passage tail."] * 2
+    assert not any("Window read by the LLM" in x.value for x in app.markdown)
+
+
+def test_versions_omit_missing_segments_and_keep_unknown_values(ui):
+    app, state = ui
+    state["result"]["ranking"]["versions"] = {
+        "components": {"encoder": "7"},
+        "extra": {"hash": "b" * 96},
+        "list": ["one", "two"],
+    }
+    submit(app, "Synthetic question")
+    assert not app.exception
+    assert "encoder v7" in [x.value for x in app.markdown]
+    assert app.dataframe[-1].value.to_dict("records") == [
+        {"Component": "Encoder", "Version": "7"},
+        {"Component": "extra.hash", "Version": "b" * 96},
+        {"Component": "list", "Version": '["one", "two"]'},
+    ]
+
+
+def test_source_labels_bold_all_companies_and_keep_model_markup_disabled(ui):
+    app, state = ui
+    state["result"]["citations"][0]["sources"].append(
+        {"ticker": "JNJ", "form": "10-Q", "year": "2024", "page": "9"}
+    )
+    state["result"]["answer"] = "<script>invalid model markup</script> [1]"
+    submit(app, "Synthetic question")
+    assert "**General Motors**" in app.expander[0].label
+    assert "**Johnson & Johnson**" in app.expander[0].label
+    assert not app.markdown[0].proto.allow_html
+    copy = " ".join(
+        [x.value for x in app.caption]
+        + [x.proto.help for x in app.caption]
+        + [x.proto.help for x in app.subheader]
+    )
+    assert "AI model" not in copy
+    assert "Ledgerlight" not in copy
