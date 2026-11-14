@@ -78,6 +78,25 @@ def test_query_matches_preserve_feature_order_and_metadata(tokenizer):
     assert data[0, 11:].tolist() == [1, 1, 1]
 
 
+def test_ticker_tokens_and_person_names():
+    from ledgerlight.features import features, query_tickers
+
+    for question, absent in [
+        ("f.e. EV/EBITDAX", "F"),
+        ("et. al.", "ET"),
+        ("mRNA", "MRNA"),
+        ("Randa Duncan Williams", "WMB"),
+        ("dvn revenue", "DVN"),
+    ]:
+        assert absent not in query_tickers(question)
+        corpus = [{"sources": [{"ticker": absent, "year": "2024", "form": "10-K"}]}]
+        matrix = features(question, [0], *[np.ones(1)] * 4, corpus, np.ones(1), np.ones(1))
+        assert matrix[0, 11] == 0
+    assert "F" in query_tickers("F-150 sales")
+    assert query_tickers("ABBV") == {"ABBV", "ABbV"}
+    assert "WMB" in query_tickers("Williams Companies cash flow")
+
+
 def test_ltr_drops_only_whitespace_duplicates_during_training(monkeypatch):
     from ledgerlight import training
 

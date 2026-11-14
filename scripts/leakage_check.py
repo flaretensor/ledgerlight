@@ -88,6 +88,7 @@ def static_audit():
                 "column_stack",
                 "astype",
                 "casefold",
+                "upper",
                 "sub",
                 "findall",
                 "stack",
@@ -99,11 +100,11 @@ def static_audit():
                 "escape",
             }, "Unreviewed feature data access"
     corpus = [
-        {"sources": [{"ticker": "AAA", "year": "2024", "form": "10-K"}]},
+        {"sources": [{"ticker": "JNJ", "year": "2024", "form": "10-K"}]},
         {"sources": [{"ticker": "BBB", "year": "2023", "form": "10-Q"}]},
     ]
     args = (
-        "AAA 2024 10-K revenue",
+        "JNJ 2024 10-K revenue",
         [0, 1],
         np.array([2.0, 1.0]),
         np.array([0.9, 0.2]),

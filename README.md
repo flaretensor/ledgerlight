@@ -12,6 +12,8 @@ The ranker retains its exact 14-feature order. Year features support FY2024, Q42
 
 Only whitespace-equivalent copies of known positive passages are removed from negative TRAIN candidates. Other unjudged candidates retain label zero: sparse qrels remain a training limitation. Official evaluation qrels are unchanged.
 
+Explicit ticker tokens must be uppercase; lowercase tickers are not recognised (use the ticker filter). ABBV and ABbV match the same company, while raw source metadata is retained. Company aliases remain case-insensitive.
+
 ## Local setup
 
 Use Python 3.12 and uv. Source scripts/env.sh, then uv sync --frozen. All host caches and temporary files stay inside this workspace. Docker uses project ledgerlight, image ledgerlight-rebuild:local, localhost bindings and restart:no. Its dependency_cache build context is the populated local .cache/uv directory and its python_runtime context is .python, allowing an offline dependency installation. Populate fresh ignored local database/Grafana credentials before services start; never copy credentials or persistent stores from another workspace.

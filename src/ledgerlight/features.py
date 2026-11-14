@@ -38,11 +38,11 @@ def query_years(question):
 
 
 def query_tickers(question):
-    tokens = set(re.findall(r"\w+", question.casefold()))
+    tokens = set(re.findall(r"\w+", question))
     return {
         ticker
         for ticker, aliases in company_aliases().items()
-        if ticker.casefold() in tokens
+        if ticker.upper() in tokens
         or any(
             re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", question, re.I)
             for alias in aliases
@@ -59,7 +59,6 @@ def ranks(values):
 def features(question, candidates, lexical, dense, fusion, ce, corpus, lengths, counts):
     candidates = np.asarray(candidates)
     tickers, years = query_tickers(question), query_years(question)
-    qtokens = set(re.findall(r"\w+", question.casefold()))
     compact_question = re.sub(r"[^a-z0-9]", "", question.casefold())
     base = np.stack(
         [
@@ -82,11 +81,7 @@ def features(question, candidates, lexical, dense, fusion, ce, corpus, lengths, 
         sources = corpus[int(candidate)]["sources"]
         metadata.append(
             [
-                float(
-                    any(
-                        s["ticker"] in tickers or s["ticker"].casefold() in qtokens for s in sources
-                    )
-                ),
+                float(any(s["ticker"] in tickers for s in sources)),
                 float(any(s["year"] in years for s in sources)),
                 float(
                     any(
