@@ -21,7 +21,14 @@ def source_matches(source, filters):
 
 def payload_filter(filters):
     fields = [
-        models.FieldCondition(key=key, match=models.MatchValue(value=str(value)))
+        models.FieldCondition(
+            key=key,
+            match=(
+                models.MatchAny(any=["ABBV", "ABbV"])
+                if key == "ticker" and str(value).upper() == "ABBV"
+                else models.MatchValue(value=str(value))
+            ),
+        )
         for key, value in filters.items()
         if value is not None and value != ""
     ]

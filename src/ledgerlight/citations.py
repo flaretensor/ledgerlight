@@ -1,5 +1,6 @@
 import re
 import secrets
+import unicodedata
 
 ABSTENTION = "not found in sources"
 MARKER = re.compile(r"\[\[SRC_[A-Za-z0-9_]+\]\]")
@@ -21,6 +22,13 @@ def issue(results):
     return issued
 
 
+def is_abstention(text):
+    text = text.strip()
+    while text and (text[-1].isspace() or unicodedata.category(text[-1]).startswith("P")):
+        text = text[:-1]
+    return text.casefold() == ABSTENTION
+
+
 def render(answer, issued):
     answer = re.sub(r"<think>.*?</think>", "", answer, flags=re.S | re.I).strip()
     if "<think>" in answer.casefold() or "</think>" in answer.casefold():
@@ -33,6 +41,14 @@ def render(answer, issued):
     if "[[SRC_" in MARKER.sub("", answer):
         return ABSTENTION, []
     if re.search(r"\[\d+\]", answer):
+        return ABSTENTION, []
+    lines = answer.splitlines()
+    if lines and is_abstention(lines[-1]) and MARKER.search("\n".join(lines[:-1])):
+        lines.pop()
+    answer = "\n".join(
+        line for line in lines if not (MARKER.search(line) and not MARKER.sub("", line).strip())
+    ).strip()
+    if not answer or is_abstention(answer):
         return ABSTENTION, []
     citations, mapping = [], {}
     for marker in markers:
@@ -50,6 +66,4 @@ def render(answer, issued):
                 }
             )
     answer = MARKER.sub(lambda m: f"[{mapping[m.group(0)]}]", answer)
-    if ABSTENTION in answer.casefold():
-        return ABSTENTION, []
     return answer, citations
