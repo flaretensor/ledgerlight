@@ -1,4 +1,3 @@
-import hashlib
 import json
 import time
 
@@ -9,6 +8,7 @@ from ledgerlight.common import digest, path, read_json, read_jsonl, write_json
 from ledgerlight.evaluation import evaluate, tracking
 from ledgerlight.retrieval import fuse, load_model, order
 from ledgerlight.training import candidate_context, ce_rankings, rank_ltr, score_ce
+from ledgerlight.training_identity import training_fingerprint
 
 
 def configuration(method, ltr, encoder, cross, baselines):
@@ -41,14 +41,6 @@ def configuration(method, ltr, encoder, cross, baselines):
         "windows_per_passage": 1,
         "corpus_sha256": digest(path("data/processed/corpus.jsonl")),
     }
-
-
-def training_fingerprint():
-    values = [
-        path("data/training/" + name).read_bytes()
-        for name in ["encoder_selected.json", "ce_selected.json", "ltr_selected.json"]
-    ]
-    return hashlib.sha256(b"".join(values)).hexdigest()
 
 
 def _evaluate_final():
