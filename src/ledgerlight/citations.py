@@ -4,6 +4,10 @@ import unicodedata
 
 ABSTENTION = "not found in sources"
 MARKER = re.compile(r"\[\[SRC_[A-Za-z0-9_]+\]\]")
+CITATION_TAIL = re.compile(
+    r"(?:^|\n)[ \t]*(?i:Citations|Sources|References)\b[ \t]*:?"
+    r"(?:" + MARKER.pattern + r"|\[\d+\]|[*\-•,\s])*\Z"
+)
 URL_OR_HTML = re.compile(
     r"[A-Za-z][A-Za-z0-9+.-]*://|(?:mailto|javascript|data|tel):|www\.|\[[^\]]+\]\([^)]*\)|<\s*/?\s*[A-Za-z][^>]*>",
     re.I,
@@ -40,13 +44,24 @@ def render(answer, issued):
         return ABSTENTION, []
     if "[[SRC_" in MARKER.sub("", answer):
         return ABSTENTION, []
+    while True:
+        previous = answer
+        answer = CITATION_TAIL.sub("", answer).rstrip()
+        lines = answer.splitlines()
+        if lines and is_abstention(lines[-1]) and MARKER.search("\n".join(lines[:-1])):
+            lines.pop()
+        answer = "\n".join(lines).strip()
+        if answer == previous:
+            break
     if re.search(r"\[\d+\]", answer):
         return ABSTENTION, []
-    lines = answer.splitlines()
-    if lines and is_abstention(lines[-1]) and MARKER.search("\n".join(lines[:-1])):
-        lines.pop()
+    markers = MARKER.findall(answer)
+    if not markers:
+        return ABSTENTION, []
     answer = "\n".join(
-        line for line in lines if not (MARKER.search(line) and not MARKER.sub("", line).strip())
+        line
+        for line in answer.splitlines()
+        if not (MARKER.search(line) and not MARKER.sub("", line).strip())
     ).strip()
     if not answer or is_abstention(answer):
         return ABSTENTION, []
