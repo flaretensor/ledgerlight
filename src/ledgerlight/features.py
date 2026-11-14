@@ -39,12 +39,17 @@ def query_years(question):
 
 def query_tickers(question):
     tokens = set(re.findall(r"\w+", question))
+    ford_alias_question = re.sub(r"(?i)(?<!\w)Eagle\s+Ford(?!\w)", "", question)
     return {
         ticker
         for ticker, aliases in company_aliases().items()
         if ticker.upper() in tokens
         or any(
-            re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", question, re.I)
+            re.search(
+                r"(?<!\w)" + re.escape(alias) + r"(?!\w)",
+                ford_alias_question if ticker == "F" else question,
+                re.I,
+            )
             for alias in aliases
         )
     }

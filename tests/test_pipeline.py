@@ -97,6 +97,21 @@ def test_ticker_tokens_and_person_names():
     assert "WMB" in query_tickers("Williams Companies cash flow")
 
 
+def test_ford_alias_excludes_only_eagle_ford():
+    from ledgerlight.features import features, query_tickers
+
+    corpus = [{"sources": [{"ticker": "F", "year": "2024", "form": "10-K"}]}]
+    for question in ["Eagle Ford role vs Anadarko", "eagle  ford production"]:
+        assert "F" not in query_tickers(question)
+        matrix = features(question, [0], *[np.ones(1)] * 4, corpus, np.ones(1), np.ones(1))
+        assert matrix.shape == (1, 14)
+        assert matrix[0, 11] == 0
+    for question in ["Ford sales", "Eagle Ford and Ford sales", "Eagle Ford and F-150 sales"]:
+        assert "F" in query_tickers(question)
+        matrix = features(question, [0], *[np.ones(1)] * 4, corpus, np.ones(1), np.ones(1))
+        assert matrix[0, 11] == 1
+
+
 def test_ltr_drops_only_whitespace_duplicates_during_training(monkeypatch):
     from ledgerlight import training
 
