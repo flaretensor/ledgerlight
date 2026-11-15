@@ -182,6 +182,7 @@ def main():
                 gevent.sleep(0.025)
         release_seconds = time.monotonic() - released
         results.append(run_case("after_disconnect", 1, 1, 15, monitor=monitor))
+        idle = httpx.get("http://127.0.0.1:8000/capacity", timeout=3).json()
         result = {
             "cases": [{k: v for k, v in r.items() if k != "rows"} for r in results],
             "disconnect_slot_release_seconds": release_seconds,
@@ -191,6 +192,7 @@ def main():
                 "llama_processing_before_next_request": processing,
                 "passed": not capacity["active"] and capacity["waiting"] == 0 and processing == 0,
             },
+            "gateway_after_final_request": idle,
             **monitor.finish(),
         }
         save(OUT / "load/samples.json", monitor.samples)

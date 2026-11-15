@@ -117,6 +117,7 @@ class Sampler:
         self.thread = threading.Thread(target=self.sample)
 
     def sample(self):
+        next_sample = time.monotonic()
         while not self.done.is_set():
             row = {"time": time.monotonic(), "rss_mib": {}}
             try:
@@ -178,7 +179,8 @@ class Sampler:
                 self.samples.append(row)
             except (OSError, ValueError, subprocess.SubprocessError):
                 pass
-            self.done.wait(1)
+            next_sample += 1
+            self.done.wait(max(0, next_sample - time.monotonic()))
 
     def start(self):
         self.thread.start()
