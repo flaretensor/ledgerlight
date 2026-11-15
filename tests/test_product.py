@@ -95,7 +95,6 @@ def test_gateway_length_retry_is_unchanged(monkeypatch):
             )
 
     monkeypatch.setattr(gateway.httpx, "Client", Client)
-    monkeypatch.setattr(gateway, "record", lambda *args: None)
     for retry_finish in ["stop", "length"]:
         calls = []
 

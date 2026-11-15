@@ -16,7 +16,7 @@ class Filters(BaseModel):
 
 class SearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    question: str = Field(min_length=1, max_length=2000)
+    question: str = Field(min_length=1, max_length=500)
     filters: Filters = Field(default_factory=Filters)
     limit: int = Field(default=5, ge=1, le=20)
 
@@ -30,7 +30,7 @@ class SearchRequest(BaseModel):
 
 class AskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    question: str = Field(min_length=1, max_length=2000)
+    question: str = Field(min_length=1, max_length=500)
     filters: Filters = Field(default_factory=Filters)
 
     @field_validator("question")
