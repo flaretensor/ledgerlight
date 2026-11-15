@@ -120,6 +120,7 @@ def search(request: SearchRequest):
                     "failed to allocate",
                     "failed to alloc",
                     "alloc_failed",
+                    "available memory of",
                 ]
             )
             else "cuda_failure"

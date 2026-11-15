@@ -54,7 +54,7 @@ def export(wrapper, tokenizer, destination):
     )
 
 
-def session(filename, provider):
+def session(filename, provider, gpu_memory_limit=1024**3):
     options = ort.SessionOptions()
     options.intra_op_num_threads = 8
     options.inter_op_num_threads = 1
@@ -66,7 +66,7 @@ def session(filename, provider):
             (
                 provider,
                 {
-                    "gpu_mem_limit": 1024**3,
+                    "gpu_mem_limit": gpu_memory_limit,
                     "use_tf32": 0,
                     "arena_extend_strategy": "kSameAsRequested",
                 },
@@ -121,7 +121,7 @@ class OnnxCrossEncoder:
     def __init__(self, source, version, provider):
         self.tokenizer = tokenizer_for("cross_encoder", source)
         target = graph_path("cross_encoder", version)
-        self.runtime = session(target, provider)
+        self.runtime = session(target, provider, gpu_memory_limit=1280 * 1024**2)
         self.provider = provider
 
     def predict(self, sentences, batch_size=32, **kwargs):
