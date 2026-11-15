@@ -257,7 +257,7 @@
     {
       "id": 8,
       "type": "timeseries",
-      "title": "GPU memory used",
+      "title": "GPU memory visible to retrieval",
       "gridPos": {
         "x": 12,
         "y": 24,

@@ -49,7 +49,19 @@ async def lifespan(app):
     initialize()
     for outcome in ["ok", "abstained", "busy", "rate", "too_long", "timeout", "error"]:
         OUTCOMES.labels(outcome).inc(0)
-    yield
+    ERRORS.labels("gateway", "error").inc(0)
+
+    async def expire_clients():
+        while True:
+            await asyncio.sleep(1)
+            ADMISSION.expire()
+
+    sweeper = asyncio.create_task(expire_clients())
+    try:
+        yield
+    finally:
+        sweeper.cancel()
+        await asyncio.gather(sweeper, return_exceptions=True)
 
 
 app = FastAPI(title="Ledgerlight", lifespan=lifespan)
@@ -71,6 +83,7 @@ def submit_ticket(request):
         ticket = ADMISSION.submit(client_address(request))
     except Rejected as exc:
         OUTCOMES.labels(exc.code).inc()
+        REQUESTS.labels("gateway", exc.code).inc()
         raise HTTPException(429, {"code": exc.code}) from None
     QUEUE.set(ADMISSION.snapshot()["waiting"])
     return ticket
@@ -234,8 +247,14 @@ async def ask_stream(request: Request, payload: AskRequest):
     ticket = submit_ticket(request)
     try:
         await ADMISSION.wait_async(ticket, request.is_disconnected, min(60, DEADLINE))
+    except asyncio.CancelledError:
+        OUTCOMES.labels("error").inc()
+        REQUESTS.labels("gateway", "error").inc()
+        QUEUE.set(ADMISSION.snapshot()["waiting"])
+        raise
     except Rejected as exc:
         OUTCOMES.labels(exc.code).inc()
+        REQUESTS.labels("gateway", exc.code).inc()
         QUEUE.set(ADMISSION.snapshot()["waiting"])
         raise HTTPException(429, {"code": exc.code}) from None
     QUEUE.set(ADMISSION.snapshot()["waiting"])
@@ -334,6 +353,7 @@ def ask(request: AskRequest, incoming: Request):
         ADMISSION.wait(ticket, min(60, DEADLINE))
     except Rejected as exc:
         OUTCOMES.labels(exc.code).inc()
+        REQUESTS.labels("gateway", exc.code).inc()
         QUEUE.set(ADMISSION.snapshot()["waiting"])
         raise HTTPException(429, {"code": exc.code}) from None
     QUEUE.set(ADMISSION.snapshot()["waiting"])

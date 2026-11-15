@@ -29,6 +29,8 @@ def test_rolling_rate_limit_expires_without_persistent_identity():
     with pytest.raises(Rejected, match="rate"):
         gate.submit("same")
     now[0] = 60
+    gate.expire()
+    assert "same" not in gate.clients
     gate.finish(gate.submit("new"))
     assert "same" not in gate.clients
 

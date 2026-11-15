@@ -60,6 +60,7 @@ def refresh():
 
 @asynccontextmanager
 async def lifespan(app):
+    ERRORS.labels("retrieval", "error").inc(0)
     with LOCK:
         refresh()
     yield

@@ -27,15 +27,22 @@ class Admission:
         self.queue = deque()
         self.clients = {}
 
+    def _expire(self, now):
+        for key in list(self.clients):
+            timestamps = self.clients[key]
+            while timestamps and timestamps[0] <= now - 60:
+                timestamps.popleft()
+            if not timestamps:
+                del self.clients[key]
+
+    def expire(self):
+        with self.condition:
+            self._expire(self.clock())
+
     def submit(self, address):
         with self.condition:
             now = self.clock()
-            for key in list(self.clients):
-                timestamps = self.clients[key]
-                while timestamps and timestamps[0] <= now - 60:
-                    timestamps.popleft()
-                if not timestamps:
-                    del self.clients[key]
+            self._expire(now)
             timestamps = self.clients.setdefault(address, deque())
             if len(timestamps) >= 6:
                 raise Rejected("rate")
