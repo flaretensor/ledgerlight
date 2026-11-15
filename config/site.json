@@ -3,7 +3,7 @@
   "triton": false,
   "gpu_layers": "all",
   "llm_threads": 8,
-  "total_layers": null,
+  "total_layers": 24,
   "vram_mib": {},
   "measured": false
 }

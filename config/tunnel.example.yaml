@@ -1,0 +1,7 @@
+tunnel: REPLACE_WITH_TUNNEL_ID
+credentials-file: /etc/cloudflared/credentials.json
+protocol: http2
+ingress:
+  - hostname: ledgerlight.flaretensor.uk
+    service: http://ui-ingress:8501
+  - service: http_status:404
