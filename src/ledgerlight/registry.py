@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 
 import mlflow
@@ -58,7 +59,7 @@ class PipelineAdapter(mlflow.pyfunc.PythonModel):
 
 
 def client():
-    return MlflowClient("http://127.0.0.1:5000")
+    return MlflowClient(os.environ.get("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000"))
 
 
 def acceptable(candidate, champion):

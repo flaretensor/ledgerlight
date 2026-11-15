@@ -1,4 +1,5 @@
 import json
+import os
 
 import numpy as np
 from qdrant_client import QdrantClient, models
@@ -7,7 +8,11 @@ from ledgerlight.common import digest, namespace, path, read_json, read_jsonl, w
 
 
 def upload():
-    client = QdrantClient("http://127.0.0.1:6333", timeout=120, check_compatibility=False)
+    client = QdrantClient(
+        os.environ.get("LEDGERLIGHT_QDRANT_URL", "http://127.0.0.1:6333"),
+        timeout=120,
+        check_compatibility=False,
+    )
     corpus = read_jsonl("data/processed/corpus.jsonl")
     windows = read_jsonl("indices/base/windows.jsonl")
     versions = read_json("data/registry/versions.json")["components"]["encoder"]

@@ -12,5 +12,12 @@ COPY pyproject.toml uv.lock .python-version ./
 RUN --mount=from=dependency_cache,target=/workspace/.cache/uv,rw UV_LINK_MODE=copy uv sync --offline --frozen --no-dev --no-install-project
 COPY src ./src
 RUN --mount=from=dependency_cache,target=/workspace/.cache/uv,rw UV_LINK_MODE=copy uv sync --offline --frozen --no-dev
+COPY scripts/brand_ui.py /opt/brand_ui.py
+RUN python /opt/brand_ui.py
+COPY scripts ./scripts
+COPY config ./config
+COPY params.yaml services.lock.json ./
+RUN rm -rf /home/ubuntu && rmdir /home
+ENV PYTHONDONTWRITEBYTECODE=1
 COPY .streamlit/config.toml ./.streamlit/config.toml
 USER 1000:1000

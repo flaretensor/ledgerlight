@@ -1,4 +1,5 @@
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -43,14 +44,50 @@ def supervise(command):
     return code if code >= 0 else 128 - code
 
 
+def serve_llama(command):
+    process = subprocess.Popen(
+        command,
+        env=os.environ,
+        start_new_session=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    def forward(number, frame):
+        try:
+            os.killpg(process.pid, number)
+        except ProcessLookupError:
+            pass
+
+    signal.signal(signal.SIGTERM, forward)
+    signal.signal(signal.SIGINT, forward)
+    loading = True
+    for line in process.stdout:
+        if loading:
+            match = re.search(r"\bn_layer\s*=\s*(\d+)", line)
+            if match:
+                print("llama.cpp load: n_layer=" + match[1], flush=True)
+            match = re.search(r"offloaded (\d+)/(\d+) layers", line)
+            if match:
+                print("llama.cpp load: offloaded=" + match[1] + "/" + match[2], flush=True)
+            if "model loaded" in line:
+                print("llama.cpp ready", flush=True)
+                loading = False
+    code = process.wait()
+    print("llama.cpp exited: " + str(code), flush=True)
+    return code if code >= 0 else 128 - code
+
+
 kind = sys.argv[1]
+bind = os.environ.get("LEDGERLIGHT_BIND_ADDRESS", "127.0.0.1")
 if kind == "mlflow":
     os.environ["MLFLOW_BACKEND_STORE_URI"] = database_url()
     args = [
         "mlflow",
         "server",
         "--host",
-        "127.0.0.1",
+        bind,
         "--port",
         "5000",
         "--workers",
@@ -59,7 +96,7 @@ if kind == "mlflow":
         "--artifacts-destination",
         str(path("mlruns/artifacts")),
         "--allowed-hosts",
-        "127.0.0.1:5000,localhost:5000,127.0.0.1,localhost",
+        "127.0.0.1:5000,localhost:5000,127.0.0.1,localhost,mlflow:5000,mlflow",
     ]
 elif kind == "llama":
     executable = next(p for p in path(".tools/llama").rglob("llama-server") if p.is_file())
@@ -77,7 +114,7 @@ elif kind == "llama":
         "--alias",
         "ledgerlight-qwen",
         "--host",
-        "127.0.0.1",
+        bind,
         "--port",
         "8091",
         "--ctx-size",
@@ -101,12 +138,17 @@ elif kind == "llama":
         "deepseek",
         "--reasoning-budget",
         "512",
+        "-lv",
+        "4",
     ]
 elif kind == "retrieval":
     deadline = time.monotonic() + 180
     while True:
         try:
-            response = httpx.get("http://127.0.0.1:6333/readyz", timeout=2)
+            response = httpx.get(
+                os.environ.get("LEDGERLIGHT_QDRANT_URL", "http://127.0.0.1:6333") + "/readyz",
+                timeout=2,
+            )
             response.raise_for_status()
             break
         except httpx.HTTPError:
@@ -122,7 +164,7 @@ elif kind == "retrieval":
         "uvicorn",
         "ledgerlight.retrieval_api:app",
         "--host",
-        "127.0.0.1",
+        bind,
         "--port",
         "8001",
     ]
@@ -130,4 +172,6 @@ else:
     raise SystemExit("Unknown container service")
 if kind == "mlflow":
     raise SystemExit(supervise(args))
+if kind == "llama":
+    raise SystemExit(serve_llama(args))
 os.execvpe(args[0], args, os.environ)

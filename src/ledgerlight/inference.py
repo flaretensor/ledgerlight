@@ -1,4 +1,5 @@
 import os
+import threading
 
 import numpy as np
 
@@ -29,22 +30,37 @@ class TritonSession:
         import tritonclient.http as triton
 
         self.api = triton
-        self.client = triton.InferenceServerClient(
-            os.environ.get("LEDGERLIGHT_TRITON_URL", "127.0.0.1:8002"),
-            connection_timeout=5,
-            network_timeout=120,
-        )
+        self.local = threading.local()
         self.name = role + "_" + str(version)
-        if not self.client.is_model_ready(self.name):
-            raise RuntimeError("Triton model unavailable: " + self.name)
+
+    def client(self):
+        if not hasattr(self.local, "client"):
+            self.local.client = self.api.InferenceServerClient(
+                os.environ.get("LEDGERLIGHT_TRITON_URL", "127.0.0.1:8002"),
+                connection_timeout=5,
+                network_timeout=120,
+            )
+            if not self.local.client.is_model_ready(self.name):
+                raise RuntimeError("Triton model unavailable: " + self.name)
+        return self.local.client
 
     def run(self, outputs, inputs):
+        size = len(next(iter(inputs.values())))
+        if size > 4:
+            return [
+                np.concatenate(
+                    [
+                        self.run(outputs, {k: v[i : i + 4] for k, v in inputs.items()})[0]
+                        for i in range(0, size, 4)
+                    ]
+                )
+            ]
         tensors = []
         for name, array in inputs.items():
             tensor = self.api.InferInput(name, array.shape, "INT64")
             tensor.set_data_from_numpy(np.ascontiguousarray(array))
             tensors.append(tensor)
-        result = self.client.infer(
+        result = self.client().infer(
             self.name, tensors, outputs=[self.api.InferRequestedOutput("output")]
         )
         return [result.as_numpy("output")]

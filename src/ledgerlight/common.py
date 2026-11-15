@@ -100,4 +100,5 @@ def database_url():
     user = os.environ.get("POSTGRES_USER", "ledgerlight")
     port = os.environ.get("POSTGRES_PORT", "5433")
     db = os.environ.get("POSTGRES_DB", "ledgerlight")
-    return f"postgresql://{user}:{password}@127.0.0.1:{port}/{db}"
+    host = os.environ.get("POSTGRES_HOST", "127.0.0.1")
+    return f"postgresql://{user}:{password}@{host}:{port}/{db}"

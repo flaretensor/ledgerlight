@@ -1,6 +1,6 @@
-name: ledgerlight
+name: ${LEDGERLIGHT_COMPOSE_PROJECT:-ledgerlight}
 x-app: &app
-  image: ledgerlight-rebuild:local
+  image: ledgerlight-site:local
   build:
     context: .
     additional_contexts:
@@ -8,27 +8,26 @@ x-app: &app
       python_runtime: ./.python
   user: "1000:1000"
   working_dir: /workspace
-  network_mode: host
   restart: "no"
-  env_file: .env
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
   environment: &app-env
     LEDGERLIGHT_ROOT: /workspace
     LEDGERLIGHT_RUN_MODE: canonical
+    LEDGERLIGHT_BIND_ADDRESS: 0.0.0.0
+    MLFLOW_TRACKING_URI: http://mlflow:5000
+    LEDGERLIGHT_QDRANT_URL: http://qdrant:6333
+    HF_HOME: /workspace/.cache/huggingface
     HF_HUB_OFFLINE: "1"
     TRANSFORMERS_OFFLINE: "1"
-    PYTHONDONTWRITEBYTECODE: "1"
-    MLFLOW_TRACKING_URI: http://127.0.0.1:5000
-    HF_HOME: /workspace/.cache/huggingface
     HF_HUB_DISABLE_TELEMETRY: "1"
     HF_HUB_DISABLE_XET: "1"
-    XDG_CACHE_HOME: /workspace/.cache
-    XDG_CONFIG_HOME: /workspace/.config
-    PIP_CACHE_DIR: /workspace/.cache/pip
-    CUDA_CACHE_PATH: /workspace/.cache/cuda
-    TORCH_HOME: /workspace/.cache/torch
-    TRITON_CACHE_DIR: /workspace/.cache/triton
-    NUMBA_CACHE_DIR: /workspace/.cache/numba
-    TMPDIR: /workspace/.tmp
+    XDG_CACHE_HOME: /tmp/cache
+    XDG_CONFIG_HOME: /tmp/config
+    CUDA_CACHE_PATH: /tmp/cuda
+    NUMBA_CACHE_DIR: /tmp/numba
+    TMPDIR: /tmp
+    PYTHONDONTWRITEBYTECODE: "1"
     STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
     MLFLOW_DISABLE_TELEMETRY: "true"
     DO_NOT_TRACK: "1"
@@ -36,131 +35,250 @@ x-app: &app
     MKL_NUM_THREADS: "8"
     OPENBLAS_NUM_THREADS: "8"
     TOKENIZERS_PARALLELISM: "false"
-    LEDGERLIGHT_BACKEND: ${LEDGERLIGHT_BACKEND:-torch}
-  volumes:
-    - .:/workspace
-    - ./models:/workspace/models:ro
-    - ./data/evaluation:/workspace/data/evaluation:ro
-    - ./mlruns:/workspace/mlruns:ro
-    - ./data/runtime/serving:/workspace/data/serving
+  networks: [backend]
 services:
   postgres:
     image: pgvector/pgvector:pg18
     user: "1000:1000"
-    network_mode: host
     restart: "no"
-    env_file: .env
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ledgerlight}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-ledgerlight}
       PGDATA: /var/lib/postgresql/18/docker
-      TMPDIR: /var/run/postgresql
-    command: ["postgres", "-p", "5433", "-c", "listen_addresses=127.0.0.1", "-c", "unix_socket_directories=/var/run/postgresql"]
+    command: [postgres, -p, "5433", -c, listen_addresses=*, -c, unix_socket_directories=/var/run/postgresql]
+    ports: ["127.0.0.1:5433:5433"]
     volumes:
+      - postgres-root:/var/lib/postgresql
       - ./data/postgres:/var/lib/postgresql/18/docker
-      - ./.tmp/postgres:/var/run/postgresql
+    tmpfs: ["/var/run/postgresql:uid=1000,gid=1000,mode=0770"]
+    networks: [backend]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5433 -U ledgerlight"]
+      test: [CMD-SHELL, "pg_isready -h 127.0.0.1 -p 5433 -U ledgerlight"]
       interval: 5s
       timeout: 3s
-      retries: 12
+      retries: 20
   mlflow:
     <<: *app
-    command: ["python", "scripts/container_service.py", "mlflow"]
+    environment:
+      <<: *app-env
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5433"
+      POSTGRES_USER: ${POSTGRES_USER:-ledgerlight}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-ledgerlight}
+    command: [python, scripts/container_service.py, mlflow]
+    ports: ["127.0.0.1:5000:5000"]
+    volumes: [./mlruns:/workspace/mlruns:ro]
     depends_on:
-      postgres:
-        condition: service_healthy
+      postgres: {condition: service_healthy}
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://127.0.0.1:5000/health').raise_for_status()"]
+      test: [CMD, python, -c, "import httpx; httpx.get('http://127.0.0.1:5000/health').raise_for_status()"]
       interval: 5s
       timeout: 4s
-      retries: 36
+      retries: 60
+    mem_limit: 2g
+    pids_limit: 256
   qdrant:
     image: qdrant/qdrant:v1.20.0
-    network_mode: host
     user: "1000:1000"
     restart: "no"
-    working_dir: /workspace
-    entrypoint: ["/qdrant/qdrant"]
-    command: ["--config-path", "/workspace/config/qdrant.yaml"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     environment:
       QDRANT__TELEMETRY_DISABLED: "true"
-      TMPDIR: /workspace/.tmp
+      QDRANT__SERVICE__HOST: 0.0.0.0
+      QDRANT__STORAGE__STORAGE_PATH: /qdrant/storage
+      QDRANT__STORAGE__SNAPSHOTS_PATH: /qdrant/snapshots
+    entrypoint: [/qdrant/qdrant]
+    command: [--config-path, /qdrant/config/ledgerlight.yaml]
+    ports: ["127.0.0.1:6333:6333", "127.0.0.1:6334:6334"]
     volumes:
-      - .:/workspace
-  llama:
-    <<: *app
-    gpus: all
-    command: ["python", "scripts/container_service.py", "llama"]
-    depends_on:
-      retrieval:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://127.0.0.1:8091/health').raise_for_status()"]
-      interval: 5s
-      timeout: 4s
-      retries: 60
+      - ./config/qdrant.yaml:/qdrant/config/ledgerlight.yaml:ro
+      - ./data/qdrant/storage:/qdrant/storage
+      - ./data/qdrant/snapshots:/qdrant/snapshots
+    networks: [backend]
   retrieval:
     <<: *app
-    gpus: all
-    command: ["python", "scripts/container_service.py", "retrieval"]
+    command: [python, scripts/container_service.py, retrieval]
+    environment:
+      <<: *app-env
+      LEDGERLIGHT_BACKEND: ${LEDGERLIGHT_BACKEND:-torch}
+      LEDGERLIGHT_DEVICE: ${LEDGERLIGHT_DEVICE:-cuda}
+      LEDGERLIGHT_TRITON: ${LEDGERLIGHT_TRITON:-0}
+      LEDGERLIGHT_TRITON_URL: triton:8000
+      LEDGERLIGHT_OPENVINO_DEVICE: ${LEDGERLIGHT_OPENVINO_DEVICE:-CPU}
+    ports: ["127.0.0.1:8001:8001"]
+    volumes:
+      - ./models:/workspace/models:ro
+      - ./indices:/workspace/indices:ro
+      - ./data/processed:/workspace/data/processed:ro
+      - ./data/registry:/workspace/data/registry:ro
+      - ./data/runtime/serving:/workspace/data/serving
+      - ./data/runtime/onnx:/workspace/data/runtime/onnx:ro
+      - ./.cache/huggingface:/workspace/.cache/huggingface:ro
+      - ./.cache/registry:/workspace/.cache/registry
     depends_on:
-      mlflow:
-        condition: service_healthy
-      qdrant:
-        condition: service_started
+      mlflow: {condition: service_healthy}
+      qdrant: {condition: service_started}
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://127.0.0.1:8001/health', timeout=15).raise_for_status()"]
-      interval: 10s
+      test: [CMD, python, -c, "import httpx; httpx.get('http://127.0.0.1:8001/health', timeout=15).raise_for_status()"]
+      interval: 5s
       timeout: 20s
-      retries: 60
+      retries: 90
       start_period: 30s
+    mem_limit: 6g
+    pids_limit: 256
+  llama:
+    <<: *app
+    command: [python, scripts/container_service.py, llama]
+    environment:
+      <<: *app-env
+      LEDGERLIGHT_GPU_LAYERS: ${LEDGERLIGHT_GPU_LAYERS:-all}
+      LEDGERLIGHT_LLM_THREADS: ${LEDGERLIGHT_LLM_THREADS:-8}
+    ports: ["127.0.0.1:8091:8091"]
+    volumes:
+      - ./models/qwen:/workspace/models/qwen:ro
+      - ./.tools/llama:/workspace/.tools/llama:ro
+    healthcheck:
+      test: [CMD, python, -c, "import httpx; httpx.get('http://127.0.0.1:8091/health').raise_for_status()"]
+      interval: 5s
+      timeout: 4s
+      retries: 90
+    mem_limit: 6g
+    pids_limit: 128
   gateway:
     <<: *app
-    command: ["python", "-m", "uvicorn", "ledgerlight.gateway:app", "--host", "127.0.0.1", "--port", "8000"]
+    user: "10001:10001"
+    read_only: true
+    environment:
+      <<: *app-env
+      LEDGERLIGHT_RETRIEVAL_URL: http://retrieval:8001
+      LEDGERLIGHT_LLM_URL: http://llama:8091
+      LEDGERLIGHT_REQUEST_DEADLINE: ${LEDGERLIGHT_REQUEST_DEADLINE:-180}
+    command: [python, -m, uvicorn, ledgerlight.gateway:app, --host, 0.0.0.0, --port, "8000", --no-access-log, --no-proxy-headers]
+    ports: ["127.0.0.1:8000:8000"]
+    tmpfs: ["/tmp:uid=10001,gid=10001,mode=1777,size=268435456"]
+    networks: [web, backend]
     depends_on:
-      retrieval:
-        condition: service_healthy
-      llama:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
+      retrieval: {condition: service_healthy}
+      llama: {condition: service_healthy}
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://127.0.0.1:8000/health', timeout=15).raise_for_status()"]
-      interval: 10s
+      test: [CMD, python, -c, "import httpx; httpx.get('http://127.0.0.1:8000/health', timeout=15).raise_for_status()"]
+      interval: 5s
       timeout: 20s
       retries: 30
+    mem_limit: 1g
+    pids_limit: 128
   ui:
     <<: *app
-    command: ["python", "-m", "streamlit", "run", "src/ledgerlight/ui.py", "--server.address", "127.0.0.1", "--server.port", "8501", "--browser.gatherUsageStats", "false"]
+    image: ${LEDGERLIGHT_UI_IMAGE:-ledgerlight-site:local}
+    user: "10001:10001"
+    read_only: true
+    environment:
+      LEDGERLIGHT_GATEWAY_URL: http://gateway:8000
+      XDG_CACHE_HOME: /tmp/cache
+      XDG_CONFIG_HOME: /tmp/config
+      TMPDIR: /tmp
+      PYTHONDONTWRITEBYTECODE: "1"
+      NVIDIA_VISIBLE_DEVICES: void
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+    command: [python, scripts/ui_service.py]
+    tmpfs: ["/tmp:uid=10001,gid=10001,mode=1777,size=268435456"]
+    networks:
+      web: {}
+      ingress: {aliases: [ui-ingress]}
     depends_on:
-      gateway:
-        condition: service_healthy
+      gateway: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import httpx; httpx.get('http://ui-ingress:8501/_stcore/health').raise_for_status()"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    mem_limit: 1g
+    pids_limit: 128
+  forwarder:
+    image: ledgerlight-forwarder:local
+    build: {context: ., dockerfile: Dockerfile.forwarder}
+    user: "10001:10001"
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ports: ["127.0.0.1:8501:8501"]
+    networks:
+      access: {gw_priority: 1}
+      ingress: {}
+    depends_on:
+      ui: {condition: service_healthy}
+    mem_limit: 64m
+    pids_limit: 32
   prometheus:
     image: prom/prometheus:v3.16.0
-    network_mode: host
     user: "1000:1000"
     restart: "no"
-    environment:
-      TMPDIR: /workspace/.tmp
-    command: ["--config.file=/workspace/config/prometheus.yaml", "--storage.tsdb.path=/workspace/data/prometheus", "--web.listen-address=127.0.0.1:9090"]
-    volumes:
-      - .:/workspace
+    command: [--config.file=/etc/prometheus/prometheus.yml, --storage.tsdb.path=/prometheus, --web.listen-address=0.0.0.0:9090]
+    ports: ["127.0.0.1:9090:9090"]
+    volumes: [./config/prometheus.yaml:/etc/prometheus/prometheus.yml:ro, ./data/prometheus:/prometheus]
+    networks: [backend]
   grafana:
     image: grafana/grafana:13.3.1
-    network_mode: host
     user: "1000:1000"
     restart: "no"
-    env_file: .env
     environment:
-      LEDGERLIGHT_ROOT: /workspace
-      GF_SERVER_HTTP_ADDR: 127.0.0.1
+      GF_SERVER_HTTP_ADDR: 0.0.0.0
       GF_SERVER_HTTP_PORT: "3000"
       GF_SECURITY_ADMIN_USER: ledgerlight
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
-      GF_PATHS_CONFIG: /workspace/config/grafana.ini
-      GF_PATHS_DATA: /workspace/data/grafana
-      GF_PATHS_LOGS: /workspace/logs/grafana
-      GF_PATHS_PLUGINS: /workspace/.cache/grafana-plugins
-      GF_PATHS_PROVISIONING: /workspace/config/grafana/provisioning
-      TMPDIR: /workspace/.tmp
+      GF_PATHS_CONFIG: /etc/grafana/ledgerlight.ini
+      GF_PATHS_DATA: /var/lib/grafana
+      GF_PATHS_LOGS: /tmp
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_PLUGINS_PREINSTALL: ""
+      GF_PLUGINS_PREINSTALL_SYNC: ""
+    ports: ["127.0.0.1:3000:3000"]
     volumes:
-      - .:/workspace
+      - ./config/grafana.ini:/etc/grafana/ledgerlight.ini:ro
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/etc/grafana/dashboards:ro
+      - ./data/grafana:/var/lib/grafana
+    networks: [backend]
+  triton:
+    image: nvcr.io/nvidia/tritonserver:26.01-py3@sha256:c9f2ede50ccc4a3ce66e22e26ed1b5adc0c68516b58edfaca738693719c2146b
+    user: "1000:1000"
+    restart: "no"
+    profiles: [triton]
+    command: [tritonserver, "--model-repository=/serving/triton/${LEDGERLIGHT_TRITON_ENGINE:-ort}", --model-control-mode=explicit, --load-model=encoder_2, --load-model=cross_encoder_2, --http-port=8000, --grpc-port=8001, --metrics-port=8002, --allow-gpu-metrics=false, --cuda-memory-pool-byte-size=0:67108864, --pinned-memory-pool-byte-size=67108864]
+    ports: ["127.0.0.1:8002:8000", "127.0.0.1:8003:8001", "127.0.0.1:8004:8002"]
+    volumes: [./data/runtime:/serving:ro]
+    networks: [backend]
+    mem_limit: 6g
+    pids_limit: 256
+  tunnel:
+    image: ledgerlight-site:local
+    user: "1000:1000"
+    restart: "no"
+    profiles: [public]
+    entrypoint: [/cloudflared]
+    command: [tunnel, --no-autoupdate, --config, /etc/cloudflared/config.yml, run]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ./.tools/cloudflared:/cloudflared:ro
+      - ./.runtime/cloudflared:/etc/cloudflared:ro
+    networks: [access, ingress]
+networks:
+  backend: {}
+  access: {}
+  web:
+    internal: true
+    driver_opts: {com.docker.network.bridge.gateway_mode_ipv4: isolated}
+  ingress:
+    internal: true
+    driver_opts: {com.docker.network.bridge.gateway_mode_ipv4: isolated}
+volumes:
+  postgres-root: {}

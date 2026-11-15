@@ -355,6 +355,69 @@
           "placement": "bottom"
         }
       }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Questions by outcome",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 32
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ledgerlight-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (outcome) (ledgerlight_ask_outcomes_total)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Waiting questions",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 32
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ledgerlight-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "ledgerlight_queue_depth",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Time to first answer text p95",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 32
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ledgerlight-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by(le) (ledgerlight_first_text_seconds_bucket)) or vector(0)",
+          "refId": "A"
+        }
+      ]
     }
   ],
   "tags": [
