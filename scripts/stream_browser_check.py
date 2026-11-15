@@ -1,7 +1,9 @@
 import asyncio
 import json
+import re
 import threading
 import time
+from pathlib import Path
 
 import httpx
 from bench_runtime import OUT, mark_step, save, summary
@@ -128,6 +130,19 @@ def main():
             "<title>Ledgerlight</title>" in html and "<title>Streamlit</title>" not in html
         )
         assert result["raw_html_title"]
+        icon = re.search(r'<link[^>]+rel="(?:shortcut )?icon"[^>]+href="([^"]+)"', html)
+        assert icon is not None
+        icon_url = str(httpx.URL("http://127.0.0.1:8501/").join(icon[1]))
+        icon_response = httpx.get(icon_url)
+        result["raw_html_favicon"] = {
+            "href": icon[1],
+            "http_status": icon_response.status_code,
+            "project_bytes_match": icon_response.content
+            == Path("src/ledgerlight/assets/favicon.png").read_bytes(),
+        }
+        assert (
+            icon_response.status_code == 200 and result["raw_html_favicon"]["project_bytes_match"]
+        )
         context.close()
     save(directory / "result.json", result)
     summary("browser", "checks", {k: v for k, v in result.items() if k != "growth_samples"})

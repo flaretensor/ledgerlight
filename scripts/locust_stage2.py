@@ -56,13 +56,20 @@ class DemoUser(HttpUser):
                             elif line.startswith("data:"):
                                 value = json.loads(line[5:])
                                 if event == "thinking" and specification.get("disconnect"):
-                                    gevent.sleep(1)
-                                    metrics = httpx.get(
-                                        "http://127.0.0.1:8091/metrics", timeout=3
-                                    ).text
-                                    active = re.search(
-                                        r"^llamacpp:requests_processing\s+([\d.]+)", metrics, re.M
-                                    )
+                                    deadline = time.monotonic() + 5
+                                    active = None
+                                    while time.monotonic() < deadline:
+                                        metrics = httpx.get(
+                                            "http://127.0.0.1:8091/metrics", timeout=3
+                                        ).text
+                                        active = re.search(
+                                            r"^llamacpp:requests_processing\s+([\d.]+)",
+                                            metrics,
+                                            re.M,
+                                        )
+                                        if active and float(active[1]) > 0:
+                                            break
+                                        gevent.sleep(0.05)
                                     row["llama_processing_before_close"] = (
                                         float(active[1]) if active else None
                                     )

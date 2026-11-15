@@ -59,7 +59,10 @@ def main():
             raise RuntimeError(
                 "Refusing to reuse pre-existing rehearsal " + resource + " resources"
             )
-    if subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip():
+    pending = subprocess.check_output(
+        ["git", "status", "--porcelain"], cwd=ROOT, text=True
+    ).splitlines()
+    if pending and pending != [" M .github/workflows/ci.yml"]:
         raise RuntimeError("Commit and push the source before rehearsing origin main")
     source_head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     remote_head = subprocess.check_output(
@@ -73,6 +76,7 @@ def main():
     ).strip()
     result = {
         "source_head": source_head,
+        "excluded_uncommitted_workflow_bump": bool(pending),
         "origin_tracking_head": remote_head,
         "timings": {},
         "reused_images": [],

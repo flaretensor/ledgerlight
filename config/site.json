@@ -1,10 +1,36 @@
 {
-  "search": "torch",
-  "triton": false,
+  "search": "ort",
+  "triton": true,
   "gpu_layers": "all",
   "llm_threads": 4,
   "total_layers": 24,
   "tunnel_protocol": null,
-  "vram_mib": {},
-  "measured": false
+  "vram_mib": {
+    "torch": {
+      "all": 3130,
+      "12": 3538,
+      "0": 3691
+    },
+    "ort": {
+      "all": 2626,
+      "12": 2156,
+      "0": 1179
+    },
+    "openvino": {
+      "all": 1461,
+      "12": 991,
+      "0": 11
+    },
+    "ort-triton": {
+      "all": 2424,
+      "12": 1956,
+      "0": 973
+    },
+    "openvino-triton": {
+      "all": 1461,
+      "12": 991,
+      "0": 11
+    }
+  },
+  "measured": true
 }
