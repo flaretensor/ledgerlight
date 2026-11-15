@@ -52,12 +52,13 @@ class OpenVinoSession:
 
 
 class TritonSession:
-    def __init__(self, role, version):
+    def __init__(self, role, version, engine):
         import tritonclient.http as triton
 
         self.api = triton
         self.local = threading.local()
         self.name = role + "_" + str(version)
+        self.pad_batch = engine.endswith("openvino")
 
     def client(self):
         if not hasattr(self.local, "client"):
@@ -81,6 +82,13 @@ class TritonSession:
                     ]
                 )
             ]
+        if self.pad_batch and size < 4:
+            # Avoid the backend's partial-batch buffer path for dynamic ONNX inputs.
+            # Rows are independent; discard the duplicate rows after inference.
+            inputs = {
+                name: np.concatenate([array, np.repeat(array[-1:], 4 - size, axis=0)])
+                for name, array in inputs.items()
+            }
         tensors = []
         for name, array in inputs.items():
             tensor = self.api.InferInput(name, array.shape, "INT64")
@@ -89,14 +97,14 @@ class TritonSession:
         result = self.client().infer(
             self.name, tensors, outputs=[self.api.InferRequestedOutput("output")]
         )
-        return [result.as_numpy("output")]
+        return [result.as_numpy("output")[:size]]
 
 
 class RuntimeEncoder(OnnxEncoder):
     def __init__(self, source, version, engine):
         self.tokenizer = tokenizer_for("encoder", source)
         self.runtime = (
-            TritonSession("encoder", version)
+            TritonSession("encoder", version, engine)
             if os.environ.get("LEDGERLIGHT_TRITON", "0") == "1"
             else OpenVinoSession(graph_path("encoder", version))
         )
@@ -107,7 +115,7 @@ class RuntimeCrossEncoder(OnnxCrossEncoder):
     def __init__(self, source, version, engine):
         self.tokenizer = tokenizer_for("cross_encoder", source)
         self.runtime = (
-            TritonSession("cross_encoder", version)
+            TritonSession("cross_encoder", version, engine)
             if os.environ.get("LEDGERLIGHT_TRITON", "0") == "1"
             else OpenVinoSession(graph_path("cross_encoder", version))
         )

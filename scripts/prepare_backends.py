@@ -52,8 +52,7 @@ parameters { key: "inter_op_thread_count" value { string_value: "1" } }"""
                 placement = "instance_group [ { kind: KIND_CPU count: 1 } ]"
                 options = """parameters { key: "INFERENCE_PRECISION_HINT" value { string_value: "f32" } }
 parameters { key: "INFERENCE_NUM_THREADS" value { string_value: "8" } }
-parameters { key: "NUM_STREAMS" value { string_value: "1" } }
-parameters { key: "ENABLE_BATCH_PADDING" value { string_value: "YES" } }"""
+parameters { key: "NUM_STREAMS" value { string_value: "1" } }"""
             config = f'''name: "{name}"
 {backend}
 max_batch_size: 4

@@ -1,7 +1,9 @@
 import gc
+import logging
 import os
 import threading
 import time
+import traceback
 from contextlib import asynccontextmanager
 
 import torch
@@ -108,6 +110,28 @@ def search(request: SearchRequest):
     except Exception as exc:
         ERRORS.labels("retrieval", type(exc).__name__).inc()
         REQUESTS.labels("retrieval", "error").inc()
+        detail = str(exc).casefold()
+        category = (
+            "allocation_failure"
+            if any(
+                marker in detail
+                for marker in [
+                    "out of memory",
+                    "failed to allocate",
+                    "failed to alloc",
+                    "alloc_failed",
+                ]
+            )
+            else "cuda_failure"
+            if "cuda" in detail or "cublas" in detail
+            else "runtime_failure"
+        )
+        frames = ">".join(
+            f"{frame.name}:{frame.lineno}" for frame in traceback.extract_tb(exc.__traceback__)
+        )
+        logging.getLogger(__name__).error(
+            "retrieval_failure type=%s category=%s frames=%s", type(exc).__name__, category, frames
+        )
         raise HTTPException(503, "Retrieval unavailable; inspect the local service log") from exc
     finally:
         LOCK.release()
