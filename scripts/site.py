@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -16,6 +17,18 @@ PORTS = [8501, 8000, 8001, 8091, 6333, 6334, 5433, 5000, 9090, 3000, 8002, 8003,
 PROJECT = os.environ.get("LEDGERLIGHT_COMPOSE_PROJECT", "ledgerlight")
 ACTIVE = ROOT / "data/runtime/active.json"
 OVERRIDE = ROOT / "data/runtime/active.compose.yaml"
+TOKEN = ROOT / ".secrets/cloudflared/token"
+
+
+def public_token():
+    if not TOKEN.is_file() or TOKEN.is_symlink() or TOKEN.stat().st_size == 0:
+        raise ValueError("Public tunnel token is absent or empty: .secrets/cloudflared/token")
+    if (
+        stat.S_IMODE(TOKEN.parent.stat().st_mode) != 0o700
+        or stat.S_IMODE(TOKEN.stat().st_mode) != 0o600
+    ):
+        raise ValueError("Tunnel token requires directory mode 0700 and file mode 0600")
+    return TOKEN.stat()
 
 
 def run(command, **kwargs):
@@ -119,11 +132,7 @@ def configure(args):
     if config["triton"] and config["search"] == "torch":
         raise ValueError("Triton requires --search ort or --search openvino")
     config.update(gpu_layers=layers, public=args.public)
-    if args.public and not all(
-        (ROOT / ".runtime/cloudflared" / name).is_file()
-        for name in ["config.yml", "credentials.json"]
-    ):
-        raise ValueError("Public tunnel credentials are not configured")
+    token_stat = public_token() if args.public else None
     required = [
         "models/encoder/trial-2/model.safetensors",
         "models/cross_encoder/trial-3/model.safetensors",
@@ -149,11 +158,27 @@ def configure(args):
             ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"], text=True
         ).splitlines()[0]
     )
-    if not args.force and (peak is None or free < peak + 150):
+    cpu_only = config["search"] == "openvino" and layers == "0"
+    if not cpu_only and not args.force and (peak is None or free < peak + 150):
         raise ValueError(
             f"VRAM fit unverified or insufficient: free={free} MiB, peak={peak}; use --force to skip"
         )
     services = {}
+    if token_stat is not None:
+        services["tunnel"] = {"user": f"{token_stat.st_uid}:{token_stat.st_gid}"}
+        protocol = settings.get("tunnel_protocol")
+        if protocol:
+            if protocol not in {"auto", "quic", "http2"}:
+                raise ValueError("Tunnel protocol must be auto, quic, or http2")
+            services["tunnel"]["command"] = [
+                "tunnel",
+                "--no-autoupdate",
+                "run",
+                "--protocol",
+                protocol,
+                "--token-file",
+                "/run/secrets/tunnel-token",
+            ]
     for name in ["retrieval", "llama", "triton"]:
         use_gpu = (
             name == "retrieval"
@@ -213,11 +238,8 @@ def healthy(url, deadline):
 
 
 def start(args):
-    if args.public and not all(
-        (ROOT / ".runtime/cloudflared" / name).is_file()
-        for name in ["config.yml", "credentials.json"]
-    ):
-        raise ValueError("Public tunnel credentials are not configured")
+    if args.public:
+        public_token()
     if container_ids(True):
         stop()
     config = configure(args)
@@ -263,6 +285,13 @@ def stop():
     ]:
         if group:
             run(["docker", "stop", "--time", "30", *group], timeout=90)
+    tunnel_ids = [
+        c["Id"]
+        for c in containers
+        if c["Config"]["Labels"].get("com.docker.compose.service") == "tunnel"
+    ]
+    if tunnel_ids:
+        run(["docker", "rm", *tunnel_ids])
     listening = []
     for port in PORTS:
         with socket.socket() as probe:
@@ -284,8 +313,7 @@ def stop():
         "no_running_project_containers": not container_ids(True),
         "no_project_tunnel": not tunnels
         and not any(
-            c["State"]["Running"]
-            and c["Config"]["Labels"].get("com.docker.compose.service") == "tunnel"
+            c["Config"]["Labels"].get("com.docker.compose.service") == "tunnel"
             for c in inspect_containers()
         ),
         "no_stack_port_listening": not listening,
@@ -318,6 +346,14 @@ def status():
                 "configuration": json.loads(ACTIVE.read_text()) if ACTIVE.exists() else None,
                 "stack_gpu": gpu_processes(project_pids()),
                 "tunnel_up": any(r["service"] == "tunnel" and r["running"] for r in rows),
+                "tunnel_state": next(
+                    (
+                        "running" if r["running"] else "stopped"
+                        for r in rows
+                        if r["service"] == "tunnel"
+                    ),
+                    "absent",
+                ),
                 "url": "http://127.0.0.1:8501",
             },
             indent=2,

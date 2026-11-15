@@ -4,6 +4,7 @@
   "gpu_layers": "all",
   "llm_threads": 4,
   "total_layers": 24,
+  "tunnel_protocol": null,
   "vram_mib": {},
   "measured": false
 }

@@ -37,6 +37,134 @@ caps=next(line.split(":")[1].strip() for line in open("/proc/self/status") if li
 print(json.dumps({"tcp":rows,"dns":dns,"uid":os.geteuid(),"effective_caps":caps,"root_writable":writable,"paths":{p:os.path.exists(p) for p in ["/home","/data","/var/run/docker.sock"]},"routes":open("/proc/net/route").read()}))"""
 
 
+def tunnel_probe(project, services, targets):
+    configuration = json.loads(
+        subprocess.check_output(
+            [
+                "docker",
+                "compose",
+                "-p",
+                project,
+                "--profile",
+                "public",
+                "config",
+                "--format",
+                "json",
+            ],
+            text=True,
+        )
+    )
+    tunnel = configuration["services"]["tunnel"]
+    network_keys = set(tunnel["networks"])
+    names = {configuration["networks"][n]["name"] for n in network_keys}
+    for key in network_keys:
+        name = configuration["networks"][key]["name"]
+        inspected = subprocess.run(
+            ["docker", "network", "inspect", name], capture_output=True, text=True
+        )
+        if inspected.returncode:
+            subprocess.run(
+                [
+                    "docker",
+                    "network",
+                    "create",
+                    "--label",
+                    "com.docker.compose.project=" + project,
+                    "--label",
+                    "com.docker.compose.network=" + key,
+                    name,
+                ],
+                check=True,
+                capture_output=True,
+            )
+        elif (
+            json.loads(inspected.stdout)[0].get("Labels", {}).get("com.docker.compose.project")
+            != project
+        ):
+            raise RuntimeError("Tunnel network belongs to a different project")
+    public = configuration["networks"]["public_ui"]["name"]
+    egress = configuration["networks"]["tunnel_egress"]["name"]
+    address = services["ui"]["NetworkSettings"]["Networks"][public]["IPAddress"]
+    probe_targets = [
+        *targets,
+        {"label": "ui/public_ui", "service": "ui", "address": address, "port": 8501},
+    ]
+    name = project + "-tunnel-probe"
+    identifier = subprocess.check_output(
+        [
+            "docker",
+            "create",
+            "--name",
+            name,
+            "--network",
+            public,
+            "--user",
+            "10001:10001",
+            "--read-only",
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges:true",
+            "--memory",
+            "128m",
+            "--pids-limit",
+            "32",
+            "--entrypoint",
+            "python",
+            services["ui"]["Config"]["Image"],
+            "-c",
+            PROBE,
+            json.dumps(probe_targets),
+        ],
+        text=True,
+    ).strip()
+    try:
+        subprocess.run(
+            ["docker", "network", "connect", egress, identifier], check=True, capture_output=True
+        )
+        attached = json.loads(
+            subprocess.check_output(["docker", "inspect", identifier], text=True)
+        )[0]
+        response = subprocess.check_output(["docker", "start", "--attach", identifier], text=True)
+        result = json.loads(response)
+        result["exact_networks"] = set(attached["NetworkSettings"]["Networks"]) == names
+    finally:
+        subprocess.run(["docker", "rm", "--force", identifier], check=True, capture_output=True)
+    mounts = tunnel.get("volumes", [])
+    result["configuration"] = {
+        "public_profile": "public" in tunnel.get("profiles", []),
+        "restart_no": tunnel.get("restart") == "no",
+        "readonly": tunnel.get("read_only") is True,
+        "cap_drop_all": "ALL" in tunnel.get("cap_drop", []),
+        "no_new_privileges": any("no-new-privileges" in x for x in tunnel.get("security_opt", [])),
+        "no_ports": not tunnel.get("ports"),
+        "limited": bool(tunnel.get("mem_limit") and tunnel.get("pids_limit")),
+        "single_readonly_token_mount": len(mounts) == 1
+        and mounts[0].get("read_only")
+        and mounts[0]["target"] == "/run/secrets/tunnel-token",
+        "dedicated_networks": network_keys == {"public_ui", "tunnel_egress"},
+        "ui_only_peer": all(
+            not (set(c["NetworkSettings"]["Networks"]) & names)
+            for service, c in services.items()
+            if service != "ui"
+        ),
+    }
+    result["ui_reachable"] = any(r["service"] == "ui" and r["reachable"] for r in result["tcp"])
+    result["forbidden_unreachable"] = not any(
+        r["reachable"] for r in result["tcp"] if r["service"] not in {"ui", "internet"}
+    )
+    result["internet_egress_expected"] = any(
+        r["service"] == "internet" and r["reachable"] for r in result["tcp"]
+    )
+    result["passed"] = (
+        result["exact_networks"]
+        and all(result["configuration"].values())
+        and result["ui_reachable"]
+        and result["forbidden_unreachable"]
+    )
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
@@ -230,9 +358,15 @@ def main():
     result["passed"] = (
         result["container_boundary_pass"] and result["stack_owned_listeners_localhost_only"]
     )
+    result["tunnel"] = tunnel_probe(args.project, services, targets)
+    result["passed"] = result["passed"] and result["tunnel"]["passed"]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n")
-    print(json.dumps({k: v for k, v in result.items() if k not in {"ui", "gateway"}}, indent=2))
+    print(
+        json.dumps(
+            {k: v for k, v in result.items() if k not in {"ui", "gateway", "tunnel"}}, indent=2
+        )
+    )
     return 0 if result["passed"] else 1
 
 

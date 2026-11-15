@@ -16,6 +16,7 @@ indices/
 mlruns/
 logs/
 .runtime/
+.secrets/
 *.egg-info/
 *.onnx
 .qdrant-initialized
