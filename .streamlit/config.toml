@@ -20,3 +20,4 @@ dataframeBorderColor = "#c7cace"
 
 [client]
 toolbarMode = "minimal"
+showErrorDetails = "none"

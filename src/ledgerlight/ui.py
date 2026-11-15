@@ -1,3 +1,4 @@
+import json
 import os
 import re
 from pathlib import Path
@@ -6,8 +7,9 @@ import httpx
 import pandas as pd
 import streamlit as st
 
+from ledgerlight import ui_transport
+
 GATEWAY = os.environ.get("LEDGERLIGHT_GATEWAY_URL", "http://127.0.0.1:8000")
-RETRIEVAL = os.environ.get("LEDGERLIGHT_RETRIEVAL_URL", "http://127.0.0.1:8001")
 COMPANIES = {
     "ABBV": "AbbVie",
     "AMGN": "Amgen",
@@ -227,7 +229,7 @@ st.caption(
 
 @st.cache_data(ttl=10)
 def metadata():
-    response = httpx.get(RETRIEVAL + "/health", timeout=15)
+    response = httpx.get(GATEWAY + "/filters", timeout=15)
     response.raise_for_status()
     return response.json()
 
@@ -240,16 +242,37 @@ except httpx.HTTPError:
 
 ask_tab, rank_tab = st.tabs(["Ask", "Search details"])
 with ask_tab:
+    example_file = Path(
+        os.environ.get("LEDGERLIGHT_EXAMPLES_FILE", Path(__file__).parent / "assets/examples.json")
+    )
+    examples = json.loads(example_file.read_text()) if example_file.is_file() else []
+
+    def select_example(value):
+        st.session_state.update(
+            question_input=value,
+            ticker_input=None,
+            form_input=None,
+            year_input=None,
+            submit_example=True,
+        )
+
+    if examples and not st.session_state.get("asked_once"):
+        st.caption("Try an example:")
+        for number, example in enumerate(examples):
+            st.button(
+                example["question"],
+                key=f"example_{number}",
+                on_click=select_example,
+                args=(example["question"],),
+            )
     with st.form("ask_form", border=False):
         question = st.text_area(
             "Question",
             label_visibility="collapsed",
             height=80,
-            max_chars=2000,
-            placeholder=(
-                "Ask in English, e.g., What factors influence the incentives GM uses to "
-                "promote its products?"
-            ),
+            max_chars=500,
+            key="question_input",
+            placeholder="Ask a question about these companies' reports, in English",
         )
         company_col, form_col, year_col, submit_col = st.columns(
             [2.4, 2.2, 1.5, 0.7], vertical_alignment="bottom", gap="small"
@@ -265,6 +288,7 @@ with ask_tab:
                     ),
                 ],
                 format_func=company_option,
+                key="ticker_input",
                 help=(
                     "Search one company's reports only. Useful when your question doesn't "
                     "name the company. The code in parentheses is the company's stock ticker."
@@ -274,6 +298,7 @@ with ask_tab:
             form = st.selectbox(
                 "Report type",
                 [None, *REPORT_TYPES],
+                key="form_input",
                 format_func=lambda value: "All types" if value is None else REPORT_TYPES[value],
                 help=(
                     "U.S. public companies file a 10-K once a year and a shorter 10-Q after "
@@ -284,6 +309,7 @@ with ask_tab:
             year = st.selectbox(
                 "Filing year",
                 [None, *health["filters"]["year"]],
+                key="year_input",
                 format_func=lambda value: "All years" if value is None else value,
                 help=(
                     "The year the report was filed, not the year it covers. An annual report "
@@ -293,6 +319,7 @@ with ask_tab:
             )
         with submit_col:
             submitted = st.form_submit_button("Ask", type="primary")
+    submitted = submitted or st.session_state.pop("submit_example", False)
     filters = {}
     if ticker is not None:
         filters["ticker"] = ticker
@@ -304,19 +331,76 @@ with ask_tab:
         st.session_state["previous_result"] = True
         st.warning("Enter a question first.")
     elif submitted:
-        with st.spinner("Searching the reports…"):
-            try:
-                response = httpx.post(
-                    GATEWAY + "/ask", json={"question": question, "filters": filters}, timeout=300
+        st.session_state["asked_once"] = True
+        phase, progress = st.empty(), st.empty()
+        phase.caption("Searching the reports…")
+        text, final = "", None
+        try:
+            from streamlit.runtime import get_instance
+            from streamlit.runtime.scriptrunner import get_script_run_ctx
+
+            context = get_script_run_ctx()
+            incoming = st.context.headers
+            address = (
+                incoming.get("CF-Connecting-IP")
+                or incoming.get("X-Forwarded-For", "").split(",")[0].strip()
+                or st.context.ip_address
+            )
+            headers = {"CF-Connecting-IP": address} if address else {}
+            state = httpx.get(GATEWAY + "/capacity", timeout=5).json()
+            if state.get("active"):
+                phase.caption("Waiting for the previous question to finish…")
+
+            def connected():
+                return not st.runtime.exists() or get_instance().is_active_session(
+                    context.session_id
                 )
-                response.raise_for_status()
-                st.session_state["result"] = response.json()
-                st.session_state["question"] = question
-                st.session_state["filters"] = filters.copy()
-                st.session_state["previous_result"] = False
-            except httpx.HTTPError:
-                st.session_state["previous_result"] = True
-                st.error("Something went wrong. Try again in a moment.")
+
+            for kind, payload in ui_transport.events(
+                GATEWAY + "/ask/stream",
+                {"question": question, "filters": filters},
+                headers,
+                connected,
+            ):
+                if kind == "queued":
+                    phase.caption("Waiting for the previous question to finish…")
+                elif kind in {"sources", "thinking"}:
+                    phase.caption("Reading the sources…")
+                elif kind == "delta":
+                    phase.empty()
+                    text += payload["text"]
+                    progress.markdown(text, unsafe_allow_html=False)
+                elif kind == "reset":
+                    text = ""
+                    progress.empty()
+                    phase.caption("Reading the sources…")
+                elif kind == "final":
+                    final = payload
+                elif kind == "error":
+                    raise httpx.HTTPError("Stream unavailable")
+            if final is None:
+                raise httpx.HTTPError("Stream ended without a final response")
+            st.session_state["result"] = final
+            st.session_state["question"] = question
+            st.session_state["filters"] = filters.copy()
+            st.session_state["previous_result"] = False
+        except httpx.HTTPError as exc:
+            st.session_state["previous_result"] = True
+            code = None
+            if isinstance(exc, httpx.HTTPStatusError):
+                try:
+                    code = exc.response.json().get("detail", {}).get("code")
+                except (ValueError, AttributeError):
+                    pass
+            messages = {
+                "busy": "Another question is being answered right now. This demo runs on a single laptop, so please try again in a few seconds.",
+                "rate": "You're asking faster than this demo can answer. Wait a minute and try again.",
+                "too_long": "That question is too long. Keep it under 500 characters.",
+            }
+            st.error(messages.get(code, "Something went wrong. Try again in a moment."))
+        finally:
+            phase.empty()
+            progress.empty()
     result = st.session_state.get("result")
     if result:
         if st.session_state.get("previous_result", False):
@@ -348,6 +432,12 @@ with ask_tab:
                     unsafe_allow_javascript=number == 1,
                 )
                 passage_body(citation, result.get("generation", {}).get("context_clipped", False))
+    with st.expander("Which companies are covered?"):
+        st.markdown(
+            "Energy: Cheniere Energy, Chevron, ConocoPhillips, Coterra Energy, Devon Energy, Energy Transfer, Enterprise Products, EOG Resources, ExxonMobil, Kinder Morgan, Marathon Petroleum, Williams Companies\n\n"
+            "Healthcare: AbbVie, Amgen, Eli Lilly, Johnson & Johnson, Merck, Moderna, Pfizer\n\n"
+            "Automotive: Ford, General Motors, Tesla"
+        )
 
 with rank_tab:
     result = st.session_state.get("result")

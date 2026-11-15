@@ -83,6 +83,14 @@ def ui(monkeypatch):
 
     monkeypatch.setattr(httpx, "get", get)
     monkeypatch.setattr(httpx, "post", post)
+    from ledgerlight import ui_transport
+
+    def stream(url, payload, headers, connected):
+        response = post(url, json=payload)
+        response.raise_for_status()
+        yield "final", response.json()
+
+    monkeypatch.setattr(ui_transport, "events", stream)
     yield AppTest.from_file(str(APP)).run(), state
     st.cache_data.clear()
 
@@ -126,7 +134,7 @@ def test_ui_copy_sources_and_detail_tables(ui):
         ":primary-background[**1**] **General Motors** · Annual report (10-K) · filed 2025 · p. 4–5"
     )
     assert (
-        app.expander[1].label
+        app.expander[2].label
         == "**1.** **General Motors** · Annual report (10-K) · filed 2025 · p. 4–5 · p0"
     )
     assert app.markdown[0].value == f'Revenue rose.\u00a0[1](#source-1 "{label}")'
