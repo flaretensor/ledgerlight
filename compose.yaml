@@ -13,6 +13,10 @@ x-app: &app
   env_file: .env
   environment: &app-env
     LEDGERLIGHT_ROOT: /workspace
+    LEDGERLIGHT_RUN_MODE: canonical
+    HF_HUB_OFFLINE: "1"
+    TRANSFORMERS_OFFLINE: "1"
+    PYTHONDONTWRITEBYTECODE: "1"
     MLFLOW_TRACKING_URI: http://127.0.0.1:5000
     HF_HOME: /workspace/.cache/huggingface
     HF_HUB_DISABLE_TELEMETRY: "1"
@@ -35,6 +39,10 @@ x-app: &app
     LEDGERLIGHT_BACKEND: ${LEDGERLIGHT_BACKEND:-torch}
   volumes:
     - .:/workspace
+    - ./models:/workspace/models:ro
+    - ./data/evaluation:/workspace/data/evaluation:ro
+    - ./mlruns:/workspace/mlruns:ro
+    - ./data/runtime/serving:/workspace/data/serving
 services:
   postgres:
     image: pgvector/pgvector:pg18
