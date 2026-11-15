@@ -1,5 +1,7 @@
 import argparse
+import ipaddress
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -18,11 +20,11 @@ PORTS = {
 PROBE = """import json,os,socket,sys
 targets=json.loads(sys.argv[1]);rows=[]
 for target in targets:
- with socket.socket() as probe:
+ with socket.socket(socket.AF_INET6 if ":" in target["address"] else socket.AF_INET) as probe:
   probe.settimeout(0.25)
-  try:reachable=probe.connect_ex((target["address"],target["port"]))==0
-  except OSError:reachable=False
- rows.append({**target,"reachable":reachable})
+  try:code=probe.connect_ex((target["address"],target["port"]));reachable=code==0
+  except OSError as exc:code=exc.errno;reachable=False
+ rows.append({**target,"reachable":reachable,"connect_errno":code})
 dns={}
 for name in ["gateway","retrieval","llama","qdrant","postgres","mlflow","triton","prometheus","grafana","forwarder"]:
  try:dns[name]=sorted({v[4][0] for v in socket.getaddrinfo(name,None)})
@@ -102,7 +104,26 @@ def main():
                     }
                 )
     targets.append({"label": "internet", "service": "internet", "address": "1.1.1.1", "port": 443})
+    host_interfaces = json.loads(subprocess.check_output(["ip", "-j", "address", "show"]))
+    host_addresses = []
+    host_ports = [22, 8501, 8000, 8001, 8091, 6333, 6334, 5433, 5000, 9090, 3000, 8002, 8003, 8004]
+    for interface in host_interfaces:
+        for address in interface.get("addr_info", []):
+            value = address["local"]
+            if ipaddress.ip_address(value).is_loopback:
+                continue
+            host_addresses.append({"interface": interface["ifname"], "address": value})
+            for port in host_ports:
+                targets.append(
+                    {
+                        "label": "host-interface/" + interface["ifname"],
+                        "service": "host",
+                        "address": value,
+                        "port": port,
+                    }
+                )
     result = {}
+    result["host_interface_addresses"] = host_addresses
     for name in ["ui", "gateway"]:
         response = subprocess.check_output(
             ["docker", "exec", services[name]["Id"], "python", "-c", PROBE, json.dumps(targets)],
@@ -138,26 +159,77 @@ def main():
         any(r["reachable"] and r["service"] == name for r in result["gateway"]["tcp"])
         for name in ["retrieval", "llama", "qdrant", "postgres", "mlflow", "prometheus", "grafana"]
     )
+    ui_targets = [
+        {"label": "ui/" + network, "service": "ui", "address": info["IPAddress"], "port": 8501}
+        for network, info in ui["NetworkSettings"]["Networks"].items()
+    ]
+    reverse = json.loads(
+        subprocess.check_output(
+            [
+                "docker",
+                "exec",
+                services["gateway"]["Id"],
+                "python",
+                "-c",
+                PROBE,
+                json.dumps(ui_targets),
+            ],
+            text=True,
+        )
+    )
+    result["gateway_to_ui"] = reverse["tcp"]
+    result["gateway_cannot_reach_ui"] = not any(r["reachable"] for r in reverse["tcp"])
     result["published_localhost_only"] = all(
         binding["HostIp"] == "127.0.0.1"
         for c in containers
         for bindings in c["NetworkSettings"]["Ports"].values()
         for binding in bindings or []
     )
-    listeners = subprocess.check_output(["ss", "-H", "-ltn"], text=True).splitlines()
-    result["host_wildcard_listeners"] = [
-        line.split()[3]
-        for line in listeners
-        if line.split()[3].startswith(("0.0.0.0:", "[::]:", "*:"))
-    ]
-    result["host_no_wildcard_listeners"] = not result["host_wildcard_listeners"]
+    listeners = subprocess.check_output(["ss", "-H", "-ltnp"], text=True).splitlines()
+    project_pids = set()
+    for container in containers:
+        top = subprocess.run(
+            ["docker", "top", container["Id"], "-eo", "pid"], capture_output=True, text=True
+        )
+        project_pids.update(int(v) for v in top.stdout.split() if v.isdigit())
+    stack_ports = set(host_ports) - {22}
+    result["host_stack_listeners"] = []
+    result["host_nonstack_listeners_info"] = []
+    for line in listeners:
+        endpoint = line.split()[3]
+        address, port = endpoint.rsplit(":", 1)
+        address = address.strip("[]")
+        processes = re.findall(r'\("([^"]+)",pid=(\d+)', line)
+        owned = int(port) in stack_ports or any(int(pid) in project_pids for _, pid in processes)
+        row = {
+            "address": address,
+            "port": int(port),
+            "bind": "wildcard" if address in {"0.0.0.0", "::", "*"} else "specific",
+            "processes": [name for name, _ in processes]
+            or (
+                ["sshd (user attribution; owner PID not exposed)"]
+                if int(port) == 22
+                else ["owner not exposed to this uid"]
+            ),
+        }
+        result["host_stack_listeners" if owned else "host_nonstack_listeners_info"].append(row)
+    result["stack_owned_listeners_localhost_only"] = all(
+        row["address"] == "127.0.0.1" for row in result["host_stack_listeners"]
+    )
+    result["ui_cannot_reach_host"] = not any(
+        row["reachable"] for row in result["ui"]["tcp"] if row["service"] == "host"
+    )
     result["container_boundary_pass"] = (
         all(result["configuration"].values())
         and result["ui_only_gateway_reachable"]
         and result["positive_control_backend"]
         and result["published_localhost_only"]
+        and result["gateway_cannot_reach_ui"]
+        and result["ui_cannot_reach_host"]
     )
-    result["passed"] = result["container_boundary_pass"] and result["host_no_wildcard_listeners"]
+    result["passed"] = (
+        result["container_boundary_pass"] and result["stack_owned_listeners_localhost_only"]
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps({k: v for k, v in result.items() if k not in {"ui", "gateway"}}, indent=2))
