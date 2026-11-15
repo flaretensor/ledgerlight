@@ -94,8 +94,13 @@ def vram_requirement(config, settings):
         return float(table[layers]), False
     total = settings.get("total_layers")
     if layers.isdigit() and total and "0" in table and "all" in table:
-        weight = min(int(layers) / total, 1)
-        return float(table["0"]) + weight * (float(table["all"]) - float(table["0"])), True
+        points = sorted(
+            (total if key == "all" else int(key), float(value)) for key, value in table.items()
+        )
+        requested = min(int(layers), total)
+        for (lower, low_value), (upper, high_value) in zip(points, points[1:]):
+            if lower <= requested <= upper:
+                return max(low_value, high_value), True
     return None, True
 
 
@@ -114,7 +119,10 @@ def configure(args):
     if config["triton"] and config["search"] == "torch":
         raise ValueError("Triton requires --search ort or --search openvino")
     config.update(gpu_layers=layers, public=args.public)
-    if args.public and not (ROOT / ".runtime/cloudflared/config.yml").is_file():
+    if args.public and not all(
+        (ROOT / ".runtime/cloudflared" / name).is_file()
+        for name in ["config.yml", "credentials.json"]
+    ):
         raise ValueError("Public tunnel credentials are not configured")
     required = [
         "models/encoder/trial-2/model.safetensors",
@@ -205,6 +213,11 @@ def healthy(url, deadline):
 
 
 def start(args):
+    if args.public and not all(
+        (ROOT / ".runtime/cloudflared" / name).is_file()
+        for name in ["config.yml", "credentials.json"]
+    ):
+        raise ValueError("Public tunnel credentials are not configured")
     if container_ids(True):
         stop()
     config = configure(args)
@@ -232,6 +245,7 @@ def start(args):
 
 
 def stop():
+    (ROOT / "data/runtime").mkdir(parents=True, exist_ok=True)
     pids = project_pids()
     containers = inspect_containers()
     running = [c for c in containers if c["State"]["Running"]]
@@ -268,7 +282,12 @@ def stop():
             pass
     result = {
         "no_running_project_containers": not container_ids(True),
-        "no_project_tunnel": not tunnels,
+        "no_project_tunnel": not tunnels
+        and not any(
+            c["State"]["Running"]
+            and c["Config"]["Labels"].get("com.docker.compose.service") == "tunnel"
+            for c in inspect_containers()
+        ),
         "no_stack_port_listening": not listening,
         "no_stack_gpu_process": not gpu_processes(pids),
         "listening_ports": listening,

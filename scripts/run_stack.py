@@ -129,6 +129,12 @@ def main(action):
 
 
 if __name__ == "__main__":
+    if (
+        len(sys.argv) > 1
+        and os.environ.get("LEDGERLIGHT_RUN_MODE") != "pilot"
+        and sys.argv[1] in {"start", "stop", "status"}
+    ):
+        os.execv(sys.executable, [sys.executable, str(ROOT / "scripts/site.py"), *sys.argv[1:]])
     if len(sys.argv) != 2 or sys.argv[1] not in {"tracking", "start", "stop"}:
         raise SystemExit("Expected tracking, start or stop")
     main(sys.argv[1])

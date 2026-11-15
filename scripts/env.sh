@@ -21,6 +21,7 @@ export CUDA_MODULE_LOADING=LAZY
 export PYTHONUNBUFFERED=1
 export PATH="$LEDGERLIGHT_ROOT/.venv/bin:${XDG_BIN_HOME:-$HOME/.local/bin}:$PATH"
 export DVC_NO_ANALYTICS=true
+export DVC_SITE_CACHE_DIR="$LEDGERLIGHT_ROOT/.cache/dvc"
 export MLFLOW_DISABLE_TELEMETRY=true
 export TORCH_HOME="$LEDGERLIGHT_ROOT/.cache/torch"
 export TORCH_EXTENSIONS_DIR="$LEDGERLIGHT_ROOT/.cache/torch-extensions"
