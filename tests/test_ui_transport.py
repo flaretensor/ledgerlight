@@ -44,6 +44,6 @@ def test_queue_phase_is_visible_before_admission_headers(monkeypatch):
     try:
         assert next(stream) == ("queued", {})
         release.set()
-        assert list(stream) == [("final", {})]
+        assert list(stream) == [("admitted", {}), ("final", {})]
     finally:
         stream.close()

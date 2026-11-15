@@ -369,7 +369,9 @@ with ask_tab:
                 headers,
                 connected,
             ):
-                if kind == "queued":
+                if kind == "admitted" or kind == "queued" and "seconds" in payload:
+                    phase.caption("Searching the reports…")
+                elif kind == "queued":
                     phase.caption("Waiting for the previous question to finish…")
                 elif kind in {"sources", "thinking"}:
                     phase.caption("Reading the sources…")

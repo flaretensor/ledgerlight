@@ -24,6 +24,8 @@ def events(url, payload, headers, connected=lambda: True):
                     if response.is_error:
                         await response.aread()
                     response.raise_for_status()
+                    # Local UI phase transition; not an additional server SSE event.
+                    inbox.put(("event", ("admitted", {})))
                     kind = None
                     async for line in response.aiter_lines():
                         if line.startswith("event:"):
