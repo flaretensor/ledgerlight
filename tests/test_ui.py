@@ -303,3 +303,18 @@ def test_source_labels_bold_all_companies_and_keep_model_markup_disabled(ui):
     )
     assert "AI model" not in copy
     assert "Ledgerlight" not in copy
+
+
+def test_examples_submit_and_clear_filters_then_disappear(ui, monkeypatch, tmp_path):
+    _, state = ui
+    examples = tmp_path / "examples.json"
+    examples.write_text(json.dumps([{"question": "Synthetic example question"}]))
+    monkeypatch.setenv("LEDGERLIGHT_EXAMPLES_FILE", str(examples))
+    app = AppTest.from_file(str(APP)).run()
+    app.selectbox[0].select("GM")
+    app.selectbox[1].select("10-K")
+    app.selectbox[2].select("2025")
+    app.button[0].click().run()
+    assert not app.exception
+    assert state["requests"][-1] == {"question": "Synthetic example question", "filters": {}}
+    assert [button.label for button in app.button] == ["Ask"]

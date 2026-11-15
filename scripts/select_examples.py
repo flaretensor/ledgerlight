@@ -44,6 +44,15 @@ def main():
                 "forms": sorted({s["form"] for s in sources}),
             }
         )
+    passing = [item for item in candidates if item["numeric_check"]["passed"]]
+    if (
+        len(passing) >= 15
+        and len({company for item in passing for company in item["companies"]}) >= 10
+        and {sector for item in passing for sector in item["sectors"]}
+        == {"Automotive", "Energy", "Healthcare"}
+        and {"10-K", "10-Q"} <= {form for item in passing for form in item["forms"]}
+    ):
+        candidates = passing
     selected, companies, groups, forms = [], set(), set(), set()
     while candidates and len(selected) < 15:
 

@@ -254,7 +254,12 @@ with ask_tab:
             form_input=None,
             year_input=None,
             submit_example=True,
+            asked_once=True,
         )
+
+    def begin_question():
+        if st.session_state.get("question_input", "").strip():
+            st.session_state["asked_once"] = True
 
     if examples and not st.session_state.get("asked_once"):
         st.caption("Try an example:")
@@ -318,7 +323,7 @@ with ask_tab:
                 ),
             )
         with submit_col:
-            submitted = st.form_submit_button("Ask", type="primary")
+            submitted = st.form_submit_button("Ask", type="primary", on_click=begin_question)
     submitted = submitted or st.session_state.pop("submit_example", False)
     filters = {}
     if ticker is not None:
@@ -332,7 +337,9 @@ with ask_tab:
         st.warning("Enter a question first.")
     elif submitted:
         st.session_state["asked_once"] = True
-        phase, progress = st.empty(), st.empty()
+        phase = st.empty()
+        with st.container(key="answer_preview"):
+            progress = st.empty()
         phase.caption("Searching the reports…")
         text, final = "", None
         try:
