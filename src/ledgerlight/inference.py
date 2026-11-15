@@ -11,6 +11,32 @@ from ledgerlight.onnx_backend import (
 )
 
 
+def synchronize_triton(configuration):
+    import tritonclient.http as triton
+
+    selected = configuration["components"]
+    wanted = {"encoder_" + str(selected["encoder"])}
+    if configuration["mode"] in {"ce", "ltr"}:
+        wanted.add("cross_encoder_" + str(selected["cross_encoder"]))
+    server = triton.InferenceServerClient(
+        os.environ.get("LEDGERLIGHT_TRITON_URL", "127.0.0.1:8002"), network_timeout=180
+    )
+    try:
+        for item in server.get_model_repository_index():
+            name = item["name"]
+            if (
+                name.startswith(("encoder_", "cross_encoder_"))
+                and item.get("state") == "READY"
+                and name not in wanted
+            ):
+                server.unload_model(name)
+        for name in sorted(wanted):
+            if not server.is_model_ready(name):
+                server.load_model(name)
+    finally:
+        server.close()
+
+
 class OpenVinoSession:
     def __init__(self, filename):
         import openvino as ov

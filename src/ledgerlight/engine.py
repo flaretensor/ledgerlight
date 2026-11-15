@@ -66,7 +66,14 @@ class SearchEngine:
         ce_source = path(config["cross_encoder_path"]) if config["cross_encoder_path"] else None
         self.cross_encoder = None
         if self.backend == "openvino" or os.environ.get("LEDGERLIGHT_TRITON", "0") == "1":
-            from ledgerlight.inference import RuntimeCrossEncoder, RuntimeEncoder
+            from ledgerlight.inference import (
+                RuntimeCrossEncoder,
+                RuntimeEncoder,
+                synchronize_triton,
+            )
+
+            if os.environ.get("LEDGERLIGHT_TRITON", "0") == "1":
+                synchronize_triton(config)
 
             components = config.get("components", {})
             self.encoder = RuntimeEncoder(
