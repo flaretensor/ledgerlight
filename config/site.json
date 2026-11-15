@@ -1,0 +1,9 @@
+{
+  "search": "torch",
+  "triton": false,
+  "gpu_layers": "all",
+  "llm_threads": 8,
+  "total_layers": null,
+  "vram_mib": {},
+  "measured": false
+}

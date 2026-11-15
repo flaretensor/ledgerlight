@@ -1,12 +1,9 @@
-import gc
-
 import numpy as np
 import onnxruntime as ort
 import torch
 import torch.nn.functional as F
 
-from ledgerlight.common import path, write_json
-from ledgerlight.retrieval import load_model
+from ledgerlight.common import params, path
 
 
 class EncoderExport(torch.nn.Module):
@@ -81,20 +78,27 @@ def session(filename, provider):
     return result
 
 
+def graph_path(role, version):
+    return path(f"data/runtime/onnx/{role}/{version}/model.onnx")
+
+
+def tokenizer_for(role, source):
+    from transformers import AutoTokenizer
+
+    cfg = params()[role]
+    return AutoTokenizer.from_pretrained(
+        str(source) if source else cfg["name"],
+        **({} if source else {"revision": cfg["revision"]}),
+        local_files_only=True,
+    )
+
+
 class OnnxEncoder:
     def __init__(self, source, version, provider):
-        model = load_model("encoder", source, device="cpu")
-        self.tokenizer = model.tokenizer
-        target = path(f"models/onnx/components/encoder/{version}/model.onnx")
-        export(EncoderExport(model), self.tokenizer, target)
-        del model
-        gc.collect()
+        self.tokenizer = tokenizer_for("encoder", source)
+        target = graph_path("encoder", version)
         self.runtime = session(target, provider)
         self.provider = provider
-        write_json(
-            f"models/onnx/components/encoder/{version}/metadata.json",
-            {"component": "encoder", "version": str(version), "opset": 17, "dtype": "float32"},
-        )
 
     def encode(self, sentences, normalize_embeddings=True, **kwargs):
         single = isinstance(sentences, str)
@@ -115,23 +119,10 @@ class OnnxEncoder:
 
 class OnnxCrossEncoder:
     def __init__(self, source, version, provider):
-        model = load_model("cross_encoder", source, device="cpu")
-        self.tokenizer = model.tokenizer
-        target = path(f"models/onnx/components/cross_encoder/{version}/model.onnx")
-        export(CrossExport(model), self.tokenizer, target)
-        del model
-        gc.collect()
+        self.tokenizer = tokenizer_for("cross_encoder", source)
+        target = graph_path("cross_encoder", version)
         self.runtime = session(target, provider)
         self.provider = provider
-        write_json(
-            f"models/onnx/components/cross_encoder/{version}/metadata.json",
-            {
-                "component": "cross_encoder",
-                "version": str(version),
-                "opset": 17,
-                "dtype": "float32",
-            },
-        )
 
     def predict(self, sentences, batch_size=32, **kwargs):
         batch_size = min(batch_size, 4)

@@ -60,16 +60,27 @@ class SearchEngine:
             self.lengths[pid] = max(self.lengths[pid], window["end"])
             self.counts[pid] += 1
         self.backend = os.environ.get("LEDGERLIGHT_BACKEND", "torch")
-        if self.backend not in {"torch", "ort-cpu", "ort-cuda"}:
-            raise ValueError("Supported backends: torch, ort-cpu, ort-cuda")
+        if self.backend not in {"torch", "ort", "openvino", "ort-cpu", "ort-cuda"}:
+            raise ValueError("Supported backends: torch, ort, openvino")
         source = path(config["encoder_path"]) if config["encoder_path"] else None
         ce_source = path(config["cross_encoder_path"]) if config["cross_encoder_path"] else None
         self.cross_encoder = None
-        if self.backend.startswith("ort-"):
+        if self.backend == "openvino" or os.environ.get("LEDGERLIGHT_TRITON", "0") == "1":
+            from ledgerlight.inference import RuntimeCrossEncoder, RuntimeEncoder
+
+            components = config.get("components", {})
+            self.encoder = RuntimeEncoder(
+                source, components.get("encoder", config["index"]), self.backend
+            )
+            if config["mode"] in {"ce", "ltr"}:
+                self.cross_encoder = RuntimeCrossEncoder(
+                    ce_source, components.get("cross_encoder", "1"), self.backend
+                )
+        elif self.backend == "ort" or self.backend.startswith("ort-"):
             from ledgerlight.onnx_backend import OnnxCrossEncoder, OnnxEncoder
 
             provider = (
-                "CUDAExecutionProvider" if self.backend == "ort-cuda" else "CPUExecutionProvider"
+                "CPUExecutionProvider" if self.backend == "ort-cpu" else "CUDAExecutionProvider"
             )
             components = config.get("components", {})
             self.encoder = OnnxEncoder(source, components.get("encoder", config["index"]), provider)
@@ -246,5 +257,9 @@ class SearchEngine:
             "components": self.config.get("components", {}),
             "collection": self.collection,
             "index": self.config["index"],
-            "backend": self.backend,
+            "backend": (
+                "triton-" + self.backend
+                if os.environ.get("LEDGERLIGHT_TRITON", "0") == "1"
+                else self.backend
+            ),
         }

@@ -36,6 +36,8 @@ dependencies = [
  "onnxruntime-gpu>=1.23,<1.24",
  "python-dotenv>=1.1,<2",
  "sqlalchemy>=2.0,<2.1",
+ "openvino>=2025.3,<2027",
+ "tritonclient[http]>=2.63,<3",
 ]
 [project.scripts]
 ledgerlight = "ledgerlight.cli:app"
