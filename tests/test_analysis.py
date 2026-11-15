@@ -1,6 +1,6 @@
 import pytest
 
-from ledgerlight.analysis import decompose, metrics, overlap_groups, strata_report
+from ledgerlight.analysis import decompose, metrics, overlap_groups, strata_report, summarize_replay
 
 
 def test_decomposition_counts_multiple_positives_once():
@@ -38,3 +38,20 @@ def test_strata_align_by_query_id_and_handle_empty_group():
     result = strata_report({"chosen": ["b"], "empty": []}, values, ["a", "b"])
     assert result["chosen"]["bootstrap"]["delta"] == pytest.approx(0.7)
     assert result["empty"]["bootstrap"] is None
+
+
+def test_replay_summary_includes_failed_request_latency_and_separates_overlap():
+    rows = [
+        {
+            "qid": "a",
+            "http_status": 200,
+            "elapsed": 2.0,
+            "response": {"citations": [{"passage_id": "p"}], "latencies": {"retrieval": 0.5}},
+        },
+        {"qid": "b", "http_status": None, "elapsed": 20.0, "response": {}, "error": "ReadTimeout"},
+    ]
+    result = summarize_replay(rows, {"a": {"positives": ["other"]}})
+    assert result["cited_answers"] == 1
+    assert result["citing_positive_parent_overlap_proxy"] == 0
+    assert result["e2e_seconds_all_offered"]["mean"] == 11.0
+    assert result["timeouts"] == 1

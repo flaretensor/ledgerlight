@@ -112,6 +112,61 @@ def strata_report(groups, per_query, query_ids, methods=None):
     return output
 
 
+def latency_summary(values):
+    if not values:
+        return None
+    return {
+        "p50": float(np.quantile(values, 0.5)),
+        "p95": float(np.quantile(values, 0.95)),
+        "mean": float(np.mean(values)),
+        "max": float(np.max(values)),
+    }
+
+
+def summarize_replay(rows, labels):
+    from collections import Counter
+
+    ok = [r for r in rows if r["http_status"] == 200]
+    payloads = [r["response"] for r in ok]
+    return {
+        "offered": len(rows),
+        "http_statuses": dict(Counter(str(r["http_status"]) for r in rows)),
+        "cited_answers": sum(bool(p.get("citations")) for p in payloads),
+        "abstentions": sum(p.get("abstained", False) for p in payloads),
+        "citing_positive_parent_overlap_proxy": sum(
+            bool(
+                {c["passage_id"] for c in r["response"].get("citations", [])}
+                & set(labels[r["qid"]]["positives"])
+            )
+            for r in ok
+        ),
+        "length_retries": sum(
+            p.get("generation", {}).get("retried_without_thinking", False) for p in payloads
+        ),
+        "context_clipped_final": sum(
+            p.get("generation", {}).get("context_clipped", False) for p in payloads
+        ),
+        "context_clipped_any_attempt": sum(
+            bool(
+                p.get("generation", {}).get("context_clipped")
+                or p.get("generation", {}).get("first_attempt", {}).get("context_clipped")
+            )
+            for p in payloads
+        ),
+        "e2e_seconds_all_offered": latency_summary([r["elapsed"] for r in rows]),
+        "search_seconds": latency_summary(
+            [p["latencies"]["retrieval"] for p in payloads if "retrieval" in p.get("latencies", {})]
+        ),
+        "errors": [
+            {k: r.get(k) for k in ["qid", "http_status", "error"]}
+            for r in rows
+            if r["http_status"] != 200
+        ],
+        "timeouts": sum("Timeout" in (r.get("error") or "") for r in rows),
+        "caveat": "Citation overlap and answer/abstention counts are proxies, not factual correctness",
+    }
+
+
 def posthoc():
     labels = read_json("data/processed/labels.json")
     splits = read_json("data/processed/splits.json")
