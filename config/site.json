@@ -32,5 +32,15 @@
       "0": 11
     }
   },
-  "measured": true
+  "measured": true,
+  "parity": {
+    "triton-openvino": {
+      "status": "passed",
+      "queries": 118,
+      "encoder_max_abs": 2.4586915969848633e-07,
+      "ce_max_abs": 7.152557373046875e-06,
+      "dev_ndcg@10": 0.4367276797012511,
+      "receipt": "data/analysis/stage3/G/parity.json"
+    }
+  }
 }
