@@ -2,6 +2,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -40,6 +41,11 @@ def build_bundle(destination):
         "training_fingerprint": frozen["training_fingerprint"],
         "dataset": {
             **cfg["data"],
+            "name": "FinRank",
+            "repository": "https://github.com/datanxt/FinRank",
+            "license_url": "https://github.com/datanxt/FinRank/blob/"
+            + cfg["data"]["revision"]
+            + "/LICENSE",
             "splits_sha256": digest(path("data/raw/splits.json")),
             "annotations_license": "CC-BY-NC-4.0",
         },
@@ -318,8 +324,8 @@ def bootstrap(args):
     started = time.monotonic()
     reused = []
     if args.repo:
-        if not args.revision:
-            raise ValueError("Hugging Face revision is required")
+        if not args.revision or not re.fullmatch(r"[0-9a-fA-F]{40}", args.revision):
+            raise ValueError("Hugging Face revision must be an immutable 40-character commit")
         from huggingface_hub import snapshot_download
 
         bundle = Path(
