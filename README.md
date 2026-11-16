@@ -6,7 +6,7 @@ It runs on one laptop with a 4 GB GPU: hybrid retrieval, two fine-tuned rankers,
 
 **Demo:** <https://ledgerlight.flaretensor.uk>. It runs on a single laptop and is online only while that laptop is running the stack.
 
-**Result:** on held-out TEST questions, the full ranking pipeline reaches nDCG@10 of 38.58%, against 22.79% for BM25 (+15.79 points, 95% CI 10.27 to 21.44). This measures retrieval. Answer correctness is not measured; see [Limitations](#limitations).
+**Result:** on held-out TEST questions, the full ranking pipeline reaches nDCG@10 of 38.58%, against 22.79% for BM25 (+15.79 points, 95% CI 10.27 to 21.44). This measures retrieval. Answer correctness is not measured; see [What the results do and don't show](#what-the-results-do-and-dont-show).
 
 ## Data
 
@@ -136,20 +136,18 @@ bash scripts/train.sh                  # resumable training, DEV selection, regi
 bash scripts/ci.sh                     # lint, format, tests, leakage checks, synthetic CPU pipeline
 ```
 
-Training took about two and a half hours on the reference machine. Fingerprints over source code, parameters, dataset and upstream weights guard resumption and cache reuse.
+Training took about two and a half hours on the reference machine.
 
-The published weights come from one frozen run. The code has been edited since, so its fingerprint no longer matches the frozen one. Retraining starts a new run and will not reproduce the published weights exactly.
+The published weights come from one frozen run. The code has been edited since, so retraining starts a new run and will not reproduce the published weights exactly.
 
 GitHub Actions runs `scripts/ci.sh` on every push. It needs neither a GPU nor Docker.
 
-## Limitations
+## What the results do and don't show
 
-- **Answer correctness is not measured.** A valid citation shows that the model pointed at a retrieved passage, not that the passage supports the statement or that a figure is right. Of the 88 cited DEV answers, 40 cite at least one passage labeled relevant. That is an overlap count, not an accuracy.
-- **Relevance labels are incomplete.** Passages nobody judged count as non-relevant in every metric and in the ranker's training targets.
-- **TEST shares a corpus with training.** The questions are new, but the documents are not. The results say nothing about other documents or companies.
+- **Retrieval, not answer correctness.** The metrics measure whether labeled passages are ranked high; the FinRank authors also leave answer evaluation to future work. A valid citation shows the model pointed at a retrieved passage, not that the passage supports the statement or that a figure is right. Of the 88 cited DEV answers, 40 cite at least one passage labeled relevant. That is an overlap count, not an accuracy.
+- **Incomplete labels.** Each question has one annotator's gold passages, and a passage can be relevant to more than one question (see §3.7 and §9 of the [paper](https://arxiv.org/abs/2608.07400)). Passages nobody judged count as non-relevant in every metric and in the ranker's training targets.
+- **One corpus for all splits.** The TEST questions are new, but the passage pool is shared with training, so the results say nothing about other companies or periods.
 - **Filing year is not fiscal year.** The year metadata is the filing year, sometimes imputed by the dataset authors. A question about fiscal 2024 is often answered by a 2025 filing, so a year filter can hide the right passage.
-- **The corpus is small.** It covers 22 companies, as excerpts only, with no original SEC documents.
-- **This is not a production deployment.** The registry, rollback, monitoring and load tests are local exercises on one machine.
 
 ## License
 
