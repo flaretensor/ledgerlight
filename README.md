@@ -1,6 +1,6 @@
 # Ledgerlight
 
-Ledgerlight answers questions about the financial reports of 22 U.S. companies and cites the passages it used. When the retrieved passages do not support an answer, it replies `not found in sources` instead of guessing.
+Ledgerlight answers questions about the financial reports of 22 U.S. companies and cites the passages it used. When the retrieved passages do not support an answer, the model is instructed to reply `not found in sources`.
 
 The whole system runs on one laptop with a 4 GB GPU: hybrid retrieval, two fine-tuned neural rankers, a learning-to-rank model, a local LLM, a held-out evaluation, and an isolated public demo.
 
@@ -71,11 +71,11 @@ Only the first comparison was planned before TEST was scored. The others, and ev
 
 **A larger encoder without training.** `bge-large-en-v1.5`, used as published, reaches 24.54% dense and 25.44% fused TEST nDCG@10. The fine-tuned small encoder is 4.42 points ahead of it with an interval that includes zero (−0.84 to 9.55). The full pipeline is 13.14 points ahead of the fused large-encoder baseline (7.58 to 19.02).
 
-**Known passages.** For 70 of the 119 TEST questions at least one relevant passage is also labeled relevant for some TRAIN question. The gain over BM25 is 12.98 points on those questions and 19.81 points on the other 49, so it does not depend on having seen the relevant passage during training.
+**Known passages.** For 70 of the 119 TEST questions at least one relevant passage is also labeled relevant for some TRAIN question. The gain over BM25 is 12.98 points on those questions and 19.81 points on the other 49, so it is positive in both groups. All splits share one corpus, and normalized text matching raises the number of such questions to 78, so this does not show how the pipeline behaves on documents it has not seen.
 
 ## Serving
 
-Measured on the reference machine: Intel Core i5-12500H, 64 GB RAM, NVIDIA RTX 3050 Laptop with 4 GB of memory. The encoder and cross-encoder can run on four backends without retraining. Latency is the search stage over the 118 DEV questions. Peak memory is the whole GPU while the LLM, fully on the GPU, answers eight questions.
+Measured on the reference machine: Intel Core i5-12500H, 64 GB RAM, NVIDIA RTX 3050 Laptop with 4 GB of memory. The encoder and cross-encoder can run on five backends without retraining. Latency is the search stage over the 118 DEV questions. Peak memory is the whole GPU while the LLM, fully on the GPU, answers eight questions.
 
 | Search backend | Search p95, s | Peak GPU memory, MiB | Status |
 | --- | --- | --- | --- |
@@ -88,7 +88,7 @@ Every backend reproduces the PyTorch scores within 1e-4 and the DEV nDCG@10 with
 
 The default is chosen by a fixed rule from these measurements: among backends that pass every check and stay under 3,700 MiB, keep those within 10% of the fastest p95, then take the one with the lowest peak memory.
 
-With the default backend, a sequential replay of the 118 DEV questions through the streaming endpoint returned 118 answers with no errors or timeouts: 88 with citations and 30 abstentions. The first visible text arrived after 7.3 s (median) and 7.5 s (p95); the full answer took 9.7 s (median) and 19.9 s (p95). The LLM generates about 90 tokens per second on the GPU.
+With the default backend, a sequential replay of the 118 DEV questions through the streaming endpoint returned 118 answers with no errors or timeouts: 88 with citations and 30 abstentions. The first visible text, observed in 102 of the 118 requests, arrived after 7.3 s (median) and 7.5 s (p95); the full answer took 9.7 s (median) and 19.9 s (p95). The LLM generates about 90 tokens per second on the GPU.
 
 **CPU mode.** `--cpu` runs retrieval on OpenVINO and the LLM entirely on the CPU, leaving the GPU free for other work. One measured answer took 57.6 s, with the first text after 43.8 s, at about 20 tokens per second.
 
@@ -100,7 +100,7 @@ With the default backend, a sequential replay of the 118 DEV questions through t
 
 - **Capacity.** One answer is generated at a time. Up to three questions wait in a queue for at most 60 seconds; beyond that the page says the demo is busy. Each client may ask six questions per minute, and a question may be 500 characters long.
 - **Privacy.** Questions, IP addresses and visitor identities are not stored. The service keeps aggregate counters and an in-memory rate limiter that forgets idle clients.
-- **Isolation.** The web page runs in an unprivileged, read-only container with no host mounts, no GPU and no internet access. It can reach the answer gateway and nothing else: not the models, the databases, the monitoring, or the host. The Cloudflare Tunnel container can reach only the web page. Every port the stack publishes is bound to `127.0.0.1`. These properties are checked by `scripts/isolation_check.py`.
+- **Isolation.** The web page runs in an unprivileged, read-only container with no host mounts, no GPU and no internet access. It can reach the answer gateway and nothing else: not the models, the databases, the monitoring, or the host. Of the stack's own services, the Cloudflare Tunnel container can reach only the web page; its other connection is the outbound one to Cloudflare, which is how visitors reach the site. Every port the stack publishes is bound to `127.0.0.1`. These properties are checked by `scripts/isolation_check.py`.
 - **Manual operation.** Nothing starts on boot. The site exists only between a manual start and a manual stop.
 
 ## Running it
