@@ -9,8 +9,8 @@ jobs:
       DO_NOT_TRACK: "1"
       CUDA_VISIBLE_DEVICES: ""
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           version: "0.13.7"
       - run: bash -c 'source scripts/env.sh && uv sync --frozen'
