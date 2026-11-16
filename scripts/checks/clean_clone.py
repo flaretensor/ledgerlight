@@ -275,7 +275,8 @@ assert out["passed"]
                 clone.parent.rmdir()
         save(directory / "attempt.json", result)
     save(directory / "result.json", result)
-    summary("release", "clean_clone", result)
+    if directory == (OUT / "clean_clone").resolve():
+        summary("release", "clean_clone", result)
     print(json.dumps({k: v for k, v in result.items() if k != "checks"}, indent=2))
 
 
