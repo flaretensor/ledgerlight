@@ -363,7 +363,7 @@ def status():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Manual Ledgerlight lifecycle; no background startup. Example: python scripts/site.py start --cpu"
+        description="Start and stop Ledgerlight by hand; nothing runs in the background. Example: python scripts/site.py start --cpu"
     )
     parser.add_argument("action", choices=["start", "stop", "status"])
     parser.add_argument("--search", choices=["torch", "ort", "openvino"])

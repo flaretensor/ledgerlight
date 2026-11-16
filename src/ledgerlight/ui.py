@@ -36,19 +36,17 @@ COMPANIES = {
 }
 REPORT_TYPES = {"10-K": "Annual report (10-K)", "10-Q": "Quarterly report (10-Q)"}
 HEADER_HELP = (
-    "The search covers 5,230 passages from annual (10-K) and quarterly (10-Q) reports "
-    "that 22 U.S. energy, healthcare, and automotive companies filed with the U.S. "
-    "Securities and Exchange Commission (SEC) in 2022–2025.\n\n"
-    "The passages come from FinRank, a public retrieval dataset of questions and labeled "
-    "excerpts from these reports. They are excerpts, not complete reports, so some "
-    "questions can't be answered here. "
+    "Answers come from 5,230 passages in the annual (10-K) and quarterly (10-Q) reports "
+    "that 22 U.S. energy, healthcare and automotive companies filed with the U.S. "
+    "Securities and Exchange Commission (SEC).\n\n"
+    "The passages come from FinRank, a public retrieval dataset. They are excerpts, not "
+    "complete reports, so some questions can't be answered here. "
     "The dataset has no links to the original filings; each source shows the company, "
-    "report type, filing year, and page instead. Passage text is shown as stored in the "
-    "dataset, including leftover markup.\n\n"
-    "This is a retrieval-augmented generation (RAG) pipeline: BM25 and dense retrieval, "
-    "reciprocal rank fusion, a cross-encoder, a CatBoost ranker, and a small local LLM "
-    "(Qwen3.5-2B) that writes the answer from the top passages. The LLM can make mistakes; "
-    "check the sources. The Search details tab shows each stage."
+    "report type, filing year and page instead. Text appears as stored, including leftover "
+    "markup.\n\n"
+    "A small local model (Qwen3.5-2B) writes each answer from the top-ranked passages. "
+    "It can make mistakes, so check the sources. The Search details tab shows how the "
+    "passages were found."
 )
 SOURCE_NAVIGATION = """<script>
 if (!window.ledgerlightSourceNavigation) {
@@ -231,7 +229,7 @@ st.html(
 )
 st.title("Ledgerlight")
 st.caption(
-    "Ask questions about the financial reports of 22 U.S. companies. Every answer cites its sources.",
+    "Ask about the financial reports of 22 U.S. companies. Answers cite the passages they draw on.",
     help=HEADER_HELP,
 )
 
@@ -296,8 +294,8 @@ with ask_tab:
                 key="ticker_input",
                 required=True,
                 help=(
-                    "Search one company's reports only. Useful when your question doesn't "
-                    "name the company. The code in parentheses is the company's stock ticker."
+                    "Search one company's reports. Helpful when your question doesn't name "
+                    "the company. The code in parentheses is its stock ticker."
                 ),
             )
         with form_col:
@@ -308,8 +306,8 @@ with ask_tab:
                 required=True,
                 format_func=lambda value: "All types" if not value else REPORT_TYPES[value],
                 help=(
-                    "U.S. public companies file a 10-K once a year and a shorter 10-Q after "
-                    "each of the other three quarters. Annual reports have the most detail."
+                    "Companies file a 10-K once a year and a shorter 10-Q for each of the "
+                    "other three quarters. The annual report has the most detail."
                 ),
             )
         with year_col:
@@ -320,8 +318,8 @@ with ask_tab:
                 required=True,
                 format_func=lambda value: "All years" if not value else value,
                 help=(
-                    "The year the report was filed, not the year it covers. An annual report "
-                    "for 2024 is usually filed in early 2025, so choose 2025 to find it. "
+                    "The year the report was filed, not the year it covers. A 2024 annual "
+                    "report is usually filed in early 2025, so pick 2025 to find it. "
                     "The dataset estimates the year for a few reports."
                 ),
             )
@@ -475,11 +473,10 @@ with rank_tab:
             "How the answer was found.",
             help=(
                 "Two retrievers search the passages: BM25 (keyword matching) and dense "
-                "retrieval (BGE-small embeddings in Qdrant). Reciprocal rank fusion (RRF) "
-                "merges their rankings into one candidate list. A cross-encoder scores each "
-                "question–passage pair, and a CatBoost learning-to-rank model produces the "
-                "final order from all of these signals. The LLM (Qwen3.5-2B) reads the top "
-                "passages and writes the answer."
+                "retrieval (BGE-small embeddings). Reciprocal rank fusion (RRF) merges "
+                "their rankings. A cross-encoder scores each question–passage pair, then a "
+                "CatBoost ranker orders the candidates using all of these signals. The top "
+                "passages go to the LLM (Qwen3.5-2B), which writes the answer."
             ),
         )
         ranking = result["ranking"]
@@ -505,10 +502,9 @@ with rank_tab:
         st.subheader(
             "LLM context",
             help=(
-                f"The top {sent_count} passages by final rank. Each passage is split into "
-                "overlapping windows of up to 448 tokens. The excerpt sent to the LLM is "
-                "the window closest to the question by embedding similarity, one per "
-                "passage, not the full passage."
+                f"The top {sent_count} passages by final rank. Passages are split into "
+                "overlapping windows of up to 448 tokens, and only the window closest to "
+                "the question (by embedding similarity) goes to the LLM."
             ),
         )
         for rank, passage in enumerate(ranking.get("results", []), 1):
@@ -526,8 +522,8 @@ with rank_tab:
             with heading_col:
                 st.subheader(
                     "Candidates",
-                    help=f"The {len(candidates)} candidates after rank fusion, ordered by final "
-                    f"rank. The top {sent_count} went to the LLM.",
+                    help=f"The {len(candidates)} candidates left after rank fusion, in final "
+                    f"rank order. The top {sent_count} went to the LLM.",
                 )
             with scores_col:
                 show_scores = st.toggle("Show scores", value=False)
@@ -560,7 +556,7 @@ with rank_tab:
             "Timing",
             help=(
                 "Wall-clock time of each stage for this request. Retrieval total covers "
-                "the five stages above it; Total also includes LLM generation."
+                "the five stages above it; Total adds LLM generation."
             ),
         )
         timings = ranking["latencies"]
