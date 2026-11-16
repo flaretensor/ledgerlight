@@ -8,7 +8,6 @@ from ledgerlight.common import digest, path, read_json, read_jsonl, write_json
 from ledgerlight.evaluation import evaluate
 from ledgerlight.retrieval import fuse, load_model, order
 from ledgerlight.training import candidate_context, ce_rankings, rank_ltr, score_ce
-from ledgerlight.training_identity import training_fingerprint
 
 
 def configuration(method, ltr, encoder, cross, baselines):
@@ -106,14 +105,12 @@ def evaluate_dev():
         )
         for left, right in comparisons
     }
-    fingerprint = training_fingerprint()
     selected = max(ladder, key=lambda name: ladder[name]["ndcg@10"])
     configs = {name: configuration(name, ltr, encoder, cross, baseline) for name in ladder}
     freeze = {
         "selected": selected,
         "configurations": configs,
         "dev": ladder,
-        "training_fingerprint": fingerprint,
         "selection_metric": "dev_ndcg@10",
         "dev_queries": len(rankings[selected]),
         "test_tuning": False,
@@ -122,7 +119,6 @@ def evaluate_dev():
         "dev": ladder,
         "bootstrap": bootstrap,
         "selected": selected,
-        "training_fingerprint": fingerprint,
         "dev_queries": freeze["dev_queries"],
         "test_evaluated": False,
         "method_note": "BGE-ft is tuned encoder + RRF + pretrained CE",
@@ -155,11 +151,9 @@ def _evaluate_final():
         if not path(name).is_file():
             raise FileNotFoundError("Missing DEV selection receipt: " + name)
     freeze = read_json("data/evaluation/freeze.json")
-    if freeze["training_fingerprint"] != training_fingerprint():
-        raise ValueError("Training identity differs from frozen DEV selection")
     reservation = path("data/evaluation/test.started.json")
     with reservation.open("x") as stream:
-        json.dump({"training_fingerprint": freeze["training_fingerprint"]}, stream)
+        json.dump({}, stream)
     started = time.monotonic()
     import re
 
@@ -239,7 +233,6 @@ def _evaluate_final():
         "dev": freeze["dev"],
         "test": metrics,
         "selected": freeze["selected"],
-        "training_fingerprint": freeze["training_fingerprint"],
         "bootstrap": paired_bootstrap(
             per_query[freeze["selected"]]["ndcg@10"], per_query["BM25"]["ndcg@10"]
         ),

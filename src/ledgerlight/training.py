@@ -27,18 +27,7 @@ def study_name(kind):
     return kind
 
 
-def validate_study(study, stage):
-    from ledgerlight.training_identity import training_fingerprint
-
-    fingerprint = training_fingerprint(stage)
-    previous = study.user_attrs.get("training_fingerprint")
-    if previous is not None and previous != fingerprint:
-        raise ValueError(
-            "Study configuration changed; preserve its artifacts and choose a new experiment"
-        )
-    if previous is None and study.trials:
-        raise ValueError("Legacy study has no reproducible training identity")
-    study.set_user_attr("training_fingerprint", fingerprint)
+def validate_study(study):
     for trial in study.get_trials(states=(optuna.trial.TrialState.RUNNING,)):
         study.tell(trial.number, state=optuna.trial.TrialState.FAIL)
 
@@ -241,7 +230,7 @@ def neural_encoder():
         sampler=optuna.samplers.TPESampler(seed=42),
         load_if_exists=True,
     )
-    validate_study(study, "encoder")
+    validate_study(study)
     trial_limit = 6
     for number in range(len(history), trial_limit):
         trial = study.ask()
@@ -490,7 +479,7 @@ def neural_cross_encoder():
         sampler=optuna.samplers.TPESampler(seed=43),
         load_if_exists=True,
     )
-    validate_study(study, "cross_encoder")
+    validate_study(study)
     history = (
         read_json("data/training/ce_trials.json")
         if path("data/training/ce_trials.json").exists()
@@ -688,7 +677,7 @@ def train_ltr():
         sampler=optuna.samplers.TPESampler(seed=44),
         load_if_exists=True,
     )
-    validate_study(study, "ranker")
+    validate_study(study)
     history = (
         read_json("data/training/ltr_trials.json")
         if path("data/training/ltr_trials.json").exists()

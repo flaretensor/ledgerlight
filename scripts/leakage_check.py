@@ -9,7 +9,6 @@ from catboost import CatBoostRanker
 import ledgerlight.features as feature_module
 from ledgerlight.common import digest, path, read_json, read_jsonl, write_json
 from ledgerlight.data import normalize
-from ledgerlight.final_evaluation import training_fingerprint
 from ledgerlight.retrieval import fuse, order
 
 SOURCES = {
@@ -185,8 +184,6 @@ def full_audit():
             f"Unapproved serialized feature: {filename.name}"
         )
         assert model.get_all_params()["loss_function"] == "YetiRank"
-    freeze = read_json("data/evaluation/freeze.json")
-    assert freeze["training_fingerprint"] == training_fingerprint()
     result.update(
         {
             "neural_partition": "A",

@@ -38,7 +38,6 @@ def build_bundle(destination):
     cfg = params()
     provenance = {
         "format": 1,
-        "training_fingerprint": frozen["training_fingerprint"],
         "dataset": {
             **cfg["data"],
             "name": "FinRank",
@@ -53,7 +52,9 @@ def build_bundle(destination):
             "encoder": {**cfg["encoder"], "license": "MIT"},
             "cross_encoder": {**cfg["cross_encoder"], "license": "Apache-2.0"},
         },
-        "selection": {k: v for k, v in frozen.items() if k not in {"configurations", "dev"}},
+        "selection": {
+            k: frozen[k] for k in ["selected", "selection_metric", "dev_queries", "test_tuning"]
+        },
         "metrics": {
             "dev": metrics["dev"]["CatBoost"],
             "test": metrics["test"]["CatBoost"],

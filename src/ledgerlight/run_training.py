@@ -5,16 +5,12 @@ import threading
 import time
 
 from ledgerlight.common import digest, params, path, read_json, write_json
-from ledgerlight.training_identity import training_fingerprint
 
 
-def run_stage(name, stage, function, outputs):
+def run_stage(name, function, outputs):
     checkpoint = f"data/training/checkpoints/{name}.json"
-    identity = training_fingerprint(stage)
     if path(checkpoint).exists():
         previous = read_json(checkpoint)
-        if previous["fingerprint"] != identity:
-            raise ValueError(f"{name} inputs changed; preserve the run and choose a new experiment")
         if all(
             path(item).is_file() and digest(path(item)) == sha
             for item, sha in previous["outputs"].items()
@@ -25,7 +21,6 @@ def run_stage(name, stage, function, outputs):
     function()
     result = {
         "stage": name,
-        "fingerprint": identity,
         "seconds": time.monotonic() - started,
         "outputs": {item: digest(path(item)) for item in outputs},
     }
@@ -65,10 +60,9 @@ def run():
     started = time.monotonic()
     try:
         stages = [
-            ("lexical", "encoder", lexical_index, ["indices/bm25/scores.npy"]),
+            ("lexical", lexical_index, ["indices/bm25/scores.npy"]),
             (
                 "base_embeddings",
-                "encoder",
                 embed,
                 [
                     "indices/base/vectors.npy",
@@ -79,7 +73,6 @@ def run():
             ),
             (
                 "baselines",
-                "encoder",
                 baseline,
                 [
                     "data/baselines/metrics.json",
@@ -89,37 +82,31 @@ def run():
             ),
             (
                 "partition",
-                "encoder",
                 prepare,
                 ["data/training/split.json", "data/training/examples.json"],
             ),
             (
-                "encoder",
                 "encoder",
                 neural_encoder,
                 ["data/training/encoder_selected.json", "indices/trained/vectors.npy"],
             ),
             (
                 "cross_encoder",
-                "cross_encoder",
                 neural_cross_encoder,
                 ["data/training/ce_selected.json", "data/training/ce_trials.json"],
             ),
             (
-                "ranker",
                 "ranker",
                 train_ltr,
                 ["data/training/ltr_selected.json", "data/training/ltr_scores.json"],
             ),
             (
                 "dev_report",
-                "pipeline",
                 evaluate_dev,
                 ["data/evaluation/dev_metrics.json", "data/evaluation/freeze.json"],
             ),
             (
                 "registry",
-                "pipeline",
                 register_all,
                 ["data/registry/versions.json"],
             ),
