@@ -314,7 +314,9 @@ def test_examples_submit_and_clear_filters_then_disappear(ui, monkeypatch, tmp_p
     app.selectbox[0].select("GM")
     app.selectbox[1].select("10-K")
     app.selectbox[2].select("2025")
-    app.button[0].click().run()
+    next(
+        button for button in app.button if button.label == "Synthetic example question"
+    ).click().run()
     assert not app.exception
     assert state["requests"][-1] == {"question": "Synthetic example question", "filters": {}}
     assert [button.label for button in app.button] == ["Ask"]

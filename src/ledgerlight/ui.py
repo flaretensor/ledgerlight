@@ -269,15 +269,6 @@ with ask_tab:
         if st.session_state.get("question_input", "").strip():
             st.session_state["asked_once"] = True
 
-    if examples and not st.session_state.get("asked_once"):
-        st.caption("Try an example:")
-        for number, example in enumerate(examples):
-            st.button(
-                example["question"],
-                key=f"example_{number}",
-                on_click=select_example,
-                args=(example["question"],),
-            )
     with st.form("ask_form", border=False):
         question = st.text_area(
             "Question",
@@ -335,6 +326,16 @@ with ask_tab:
             )
         with submit_col:
             submitted = st.form_submit_button("Ask", type="primary", on_click=begin_question)
+    if examples and not st.session_state.get("asked_once"):
+        with st.container(key="examples"):
+            st.caption("Try an example:")
+            for number, example in enumerate(examples):
+                st.button(
+                    example["question"],
+                    key=f"example_{number}",
+                    on_click=select_example,
+                    args=(example["question"],),
+                )
     answer_area = st.container(key="response")
     with st.expander("Which companies are covered?", key="company_coverage", on_change="rerun"):
         st.markdown(
