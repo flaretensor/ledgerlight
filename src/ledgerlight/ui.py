@@ -129,7 +129,7 @@ def company_name(ticker):
 
 
 def company_option(ticker):
-    if ticker is None:
+    if not ticker:
         return "All companies"
     if ticker.upper() in COMPANIES:
         return f"{company_name(ticker)} ({ticker})"
@@ -166,6 +166,10 @@ def duration(seconds):
     if seconds < 0.001:
         return "<1 ms"
     return f"{seconds * 1000:.0f} ms" if seconds < 1 else f"{seconds:.1f} s"
+
+
+def phase_status(target, text):
+    target.html(f'<div class="ledgerlight-phase" role="status">{text}</div>')
 
 
 def passage_body(passage, clipped=False):
@@ -208,6 +212,10 @@ st.html(
         border-radius:6px;padding:0 2px 0 6px;text-decoration:none}
     a[href^="#"]:not([href^="#source-"]){color:#df2f1f}
     [data-testid="stExpander"] details{border:0;background:#f5f5f5;border-radius:12px}
+    @keyframes ledgerlight-spin{to{transform:rotate(360deg)}}
+    .ledgerlight-phase{display:flex;align-items:center;gap:8px;font-size:15px;color:#1f1f1f}
+    .ledgerlight-phase::before{content:"";width:14px;height:14px;border:2px solid #df2f1f33;
+        border-top-color:#df2f1f;border-radius:50%;animation:ledgerlight-spin .8s linear infinite}
     [data-testid="stSpinnerIcon"]{border-color:#df2f1f33!important;border-top-color:#df2f1f!important}
     [data-testid="stExpander"] [data-testid="stText"]{font-family:inherit;font-size:14.5px;
         line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
@@ -250,9 +258,9 @@ with ask_tab:
     def select_example(value):
         st.session_state.update(
             question_input=value,
-            ticker_input=None,
-            form_input=None,
-            year_input=None,
+            ticker_input="",
+            form_input="",
+            year_input="",
             submit_example=True,
             asked_once=True,
         )
@@ -286,7 +294,7 @@ with ask_tab:
             ticker = st.selectbox(
                 "Company",
                 [
-                    None,
+                    "",
                     *sorted(
                         {"ABBV" if t.upper() == "ABBV" else t for t in health["filters"]["ticker"]},
                         key=lambda t: company_name(t).casefold(),
@@ -294,6 +302,7 @@ with ask_tab:
                 ],
                 format_func=company_option,
                 key="ticker_input",
+                required=True,
                 help=(
                     "Search one company's reports only. Useful when your question doesn't "
                     "name the company. The code in parentheses is the company's stock ticker."
@@ -302,9 +311,10 @@ with ask_tab:
         with form_col:
             form = st.selectbox(
                 "Report type",
-                [None, *REPORT_TYPES],
+                ["", *REPORT_TYPES],
                 key="form_input",
-                format_func=lambda value: "All types" if value is None else REPORT_TYPES[value],
+                required=True,
+                format_func=lambda value: "All types" if not value else REPORT_TYPES[value],
                 help=(
                     "U.S. public companies file a 10-K once a year and a shorter 10-Q after "
                     "each of the other three quarters. Annual reports have the most detail."
@@ -313,9 +323,10 @@ with ask_tab:
         with year_col:
             year = st.selectbox(
                 "Filing year",
-                [None, *health["filters"]["year"]],
+                ["", *health["filters"]["year"]],
                 key="year_input",
-                format_func=lambda value: "All years" if value is None else value,
+                required=True,
+                format_func=lambda value: "All years" if not value else value,
                 help=(
                     "The year the report was filed, not the year it covers. An annual report "
                     "for 2024 is usually filed in early 2025, so choose 2025 to find it. "
@@ -324,129 +335,136 @@ with ask_tab:
             )
         with submit_col:
             submitted = st.form_submit_button("Ask", type="primary", on_click=begin_question)
-    submitted = submitted or st.session_state.pop("submit_example", False)
-    filters = {}
-    if ticker is not None:
-        filters["ticker"] = ticker
-    if form is not None:
-        filters["form"] = form
-    if year is not None:
-        filters["year"] = year
-    if submitted and not question.strip():
-        st.session_state["previous_result"] = True
-        st.warning("Enter a question first.")
-    elif submitted:
-        st.session_state["asked_once"] = True
-        phase = st.empty()
-        with st.container(key="answer_preview"):
-            progress = st.empty()
-        phase.caption("Searching the reports…")
-        text, final = "", None
-        try:
-            from streamlit.runtime import get_instance
-            from streamlit.runtime.scriptrunner import get_script_run_ctx
-
-            context = get_script_run_ctx()
-            incoming = st.context.headers
-            address = (
-                incoming.get("CF-Connecting-IP")
-                or incoming.get("X-Forwarded-For", "").split(",")[0].strip()
-                or st.context.ip_address
-            )
-            headers = {"CF-Connecting-IP": address} if address else {}
-            state = httpx.get(GATEWAY + "/capacity", timeout=5).json()
-            if state.get("active"):
-                phase.caption("Waiting for the previous question to finish…")
-
-            def connected():
-                return not st.runtime.exists() or get_instance().is_active_session(
-                    context.session_id
-                )
-
-            for kind, payload in ui_transport.events(
-                GATEWAY + "/ask/stream",
-                {"question": question, "filters": filters},
-                headers,
-                connected,
-            ):
-                if kind == "admitted" or kind == "queued" and "seconds" in payload:
-                    phase.caption("Searching the reports…")
-                elif kind == "queued":
-                    phase.caption("Waiting for the previous question to finish…")
-                elif kind in {"sources", "thinking"}:
-                    phase.caption("Reading the sources…")
-                elif kind == "delta":
-                    phase.empty()
-                    text += payload["text"]
-                    progress.markdown(text, unsafe_allow_html=False)
-                elif kind == "reset":
-                    text = ""
-                    progress.empty()
-                    phase.caption("Reading the sources…")
-                elif kind == "final":
-                    final = payload
-                elif kind == "error":
-                    raise httpx.HTTPError("Stream unavailable")
-            if final is None:
-                raise httpx.HTTPError("Stream ended without a final response")
-            st.session_state["result"] = final
-            st.session_state["question"] = question
-            st.session_state["filters"] = filters.copy()
-            st.session_state["previous_result"] = False
-        except httpx.HTTPError as exc:
-            st.session_state["previous_result"] = True
-            code = None
-            if isinstance(exc, httpx.HTTPStatusError):
-                try:
-                    code = exc.response.json().get("detail", {}).get("code")
-                except (ValueError, AttributeError):
-                    pass
-            messages = {
-                "busy": "Another question is being answered right now. This demo runs on a single laptop, so please try again in a few seconds.",
-                "rate": "You're asking faster than this demo can answer. Wait a minute and try again.",
-                "too_long": "That question is too long. Keep it under 500 characters.",
-            }
-            st.error(messages.get(code, "Something went wrong. Try again in a moment."))
-        finally:
-            phase.empty()
-            progress.empty()
-    result = st.session_state.get("result")
-    if result:
-        if st.session_state.get("previous_result", False):
-            st.caption(f"Previous question: {st.session_state['question']}")
-        if result["abstained"]:
-            st.info(
-                "No answer found in these reports. Try rephrasing the question or removing filters."
-            )
-        else:
-            with st.container(key="answer_text"):
-                st.markdown(
-                    linked_answer(result["answer"], result["citations"]), unsafe_allow_html=False
-                )
-        seconds = result["latencies"]["e2e"]
-        with st.container(key="answer_stats"):
-            if result["abstained"]:
-                st.caption(f"{seconds:.1f} s")
-            else:
-                count = len(result["citations"])
-                st.caption(f"{count} {'source' if count == 1 else 'sources'} · {seconds:.1f} s")
-        for citation in result["citations"]:
-            number = int(citation["number"])
-            with st.expander(
-                f":primary-background[**{number}**] " + source_label(citation["sources"], bold=True)
-            ):
-                st.html(
-                    f'<span id="source-{number}"></span>'
-                    + (SOURCE_NAVIGATION if number == 1 else ""),
-                    unsafe_allow_javascript=number == 1,
-                )
-                passage_body(citation, result.get("generation", {}).get("context_clipped", False))
-    with st.expander("Which companies are covered?"):
+    answer_area = st.container(key="response")
+    with st.expander("Which companies are covered?", key="company_coverage", on_change="rerun"):
         st.markdown(
             "Energy: Cheniere Energy, Chevron, ConocoPhillips, Coterra Energy, Devon Energy, Energy Transfer, Enterprise Products, EOG Resources, ExxonMobil, Kinder Morgan, Marathon Petroleum, Williams Companies\n\n"
             "Healthcare: AbbVie, Amgen, Eli Lilly, Johnson & Johnson, Merck, Moderna, Pfizer\n\n"
             "Automotive: Ford, General Motors, Tesla"
         )
+
+    with answer_area:
+        submitted = submitted or st.session_state.pop("submit_example", False)
+        filters = {}
+        if ticker:
+            filters["ticker"] = ticker
+        if form:
+            filters["form"] = form
+        if year:
+            filters["year"] = year
+        if submitted and not question.strip():
+            st.session_state["previous_result"] = True
+            st.warning("Enter a question first.")
+        elif submitted:
+            st.session_state["asked_once"] = True
+            phase = st.empty()
+            with st.container(key="answer_preview"):
+                progress = st.empty()
+            phase_status(phase, "Searching the reports…")
+            text, final = "", None
+            try:
+                from streamlit.runtime import get_instance
+                from streamlit.runtime.scriptrunner import get_script_run_ctx
+
+                context = get_script_run_ctx()
+                incoming = st.context.headers
+                address = (
+                    incoming.get("CF-Connecting-IP")
+                    or incoming.get("X-Forwarded-For", "").split(",")[0].strip()
+                    or st.context.ip_address
+                )
+                headers = {"CF-Connecting-IP": address} if address else {}
+                state = httpx.get(GATEWAY + "/capacity", timeout=5).json()
+                if state.get("active"):
+                    phase_status(phase, "Waiting for the previous question to finish…")
+
+                def connected():
+                    return not st.runtime.exists() or get_instance().is_active_session(
+                        context.session_id
+                    )
+
+                for kind, payload in ui_transport.events(
+                    GATEWAY + "/ask/stream",
+                    {"question": question, "filters": filters},
+                    headers,
+                    connected,
+                ):
+                    if kind == "admitted" or kind == "queued" and "seconds" in payload:
+                        phase_status(phase, "Searching the reports…")
+                    elif kind == "queued":
+                        phase_status(phase, "Waiting for the previous question to finish…")
+                    elif kind in {"sources", "thinking"}:
+                        phase_status(phase, "Reading the sources…")
+                    elif kind == "delta":
+                        phase.empty()
+                        text += payload["text"]
+                        progress.markdown(text, unsafe_allow_html=False)
+                    elif kind == "reset":
+                        text = ""
+                        progress.empty()
+                        phase_status(phase, "Reading the sources…")
+                    elif kind == "final":
+                        final = payload
+                    elif kind == "error":
+                        raise httpx.HTTPError("Stream unavailable")
+                if final is None:
+                    raise httpx.HTTPError("Stream ended without a final response")
+                st.session_state["result"] = final
+                st.session_state["question"] = question
+                st.session_state["filters"] = filters.copy()
+                st.session_state["previous_result"] = False
+            except httpx.HTTPError as exc:
+                st.session_state["previous_result"] = True
+                code = None
+                if isinstance(exc, httpx.HTTPStatusError):
+                    try:
+                        code = exc.response.json().get("detail", {}).get("code")
+                    except (ValueError, AttributeError):
+                        pass
+                messages = {
+                    "busy": "Another question is being answered right now. This demo runs on a single laptop, so please try again in a few seconds.",
+                    "rate": "You're asking faster than this demo can answer. Wait a minute and try again.",
+                    "too_long": "That question is too long. Keep it under 500 characters.",
+                }
+                st.error(messages.get(code, "Something went wrong. Try again in a moment."))
+            finally:
+                phase.empty()
+                progress.empty()
+        result = st.session_state.get("result")
+        if result:
+            if st.session_state.get("previous_result", False):
+                st.caption(f"Previous question: {st.session_state['question']}")
+            if result["abstained"]:
+                st.info(
+                    "No answer found in these reports. Try rephrasing the question or removing filters."
+                )
+            else:
+                with st.container(key="answer_text"):
+                    st.markdown(
+                        linked_answer(result["answer"], result["citations"]),
+                        unsafe_allow_html=False,
+                    )
+            seconds = result["latencies"]["e2e"]
+            with st.container(key="answer_stats"):
+                if result["abstained"]:
+                    st.caption(f"{seconds:.1f} s")
+                else:
+                    count = len(result["citations"])
+                    st.caption(f"{count} {'source' if count == 1 else 'sources'} · {seconds:.1f} s")
+            for citation in result["citations"]:
+                number = int(citation["number"])
+                with st.expander(
+                    f":primary-background[**{number}**] "
+                    + source_label(citation["sources"], bold=True)
+                ):
+                    st.html(
+                        f'<span id="source-{number}"></span>'
+                        + (SOURCE_NAVIGATION if number == 1 else ""),
+                        unsafe_allow_javascript=number == 1,
+                    )
+                    passage_body(
+                        citation, result.get("generation", {}).get("context_clipped", False)
+                    )
 
 with rank_tab:
     result = st.session_state.get("result")

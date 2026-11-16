@@ -284,7 +284,7 @@ def stop():
         ],
     ]:
         if group:
-            run(["docker", "stop", "--time", "30", *group], timeout=90)
+            run(["docker", "stop", "--timeout", "30", *group], timeout=90)
     tunnel_ids = [
         c["Id"]
         for c in containers
