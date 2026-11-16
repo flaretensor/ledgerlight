@@ -3,10 +3,10 @@ from pathlib import Path
 
 
 def test_default_selection_uses_independent_triton_speed_band_and_vram_tie(monkeypatch):
-    scripts = Path(__file__).parents[1] / "scripts"
+    scripts = Path(__file__).parents[1] / "scripts" / "checks"
     monkeypatch.syspath_prepend(str(scripts))
     specification = importlib.util.spec_from_file_location(
-        "measured_defaults", scripts / "measure_stage2.py"
+        "measured_defaults", scripts / "runtime_benchmarks.py"
     )
     module = importlib.util.module_from_spec(specification)
     specification.loader.exec_module(module)
@@ -33,7 +33,6 @@ def test_default_selection_uses_independent_triton_speed_band_and_vram_tie(monke
     monkeypatch.setattr(module, "read_json", lambda p: document if "summary" in p else {})
     monkeypatch.setattr(module, "save", lambda p, v: None)
     monkeypatch.setattr(module, "summary", lambda s, n, v: saved.update(v))
-    monkeypatch.setattr(module, "mark_step", lambda *a, **k: None)
     module.choose_defaults()
     assert saved["selected"] == "triton-ort"
     assert "triton-openvino" not in saved["eligible"]

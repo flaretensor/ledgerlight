@@ -31,40 +31,6 @@ def summary(section, name, value):
         save(target, document)
 
 
-def mark_step(stage, item, status, cause="", artifacts=(), deviations=(), reruns=()):
-    with (OUT / "summary.lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        target = OUT / "summary.json"
-        document = json.loads(target.read_text())
-        entry = document.setdefault("stages", {}).setdefault(str(stage), {})
-        previous = entry.setdefault("items", {}).get(str(item), {})
-        entry.setdefault("items", {})[str(item)] = {
-            "status": status,
-            "cause": cause,
-            "artifacts": list(dict.fromkeys([*previous.get("artifacts", []), *artifacts])),
-            "deviations": list(dict.fromkeys([*previous.get("deviations", []), *deviations])),
-            "reruns": list(dict.fromkeys([*previous.get("reruns", []), *reruns])),
-        }
-        states = [v["status"] for v in entry["items"].values()]
-        entry["status"] = (
-            "DONE"
-            if all(s == "DONE" for s in states)
-            else "PENDING"
-            if all(s == "PENDING" for s in states)
-            else "PARTIAL"
-        )
-        entry["cause"] = "; ".join(
-            f"{key}: {value['status']} {value['cause']}"
-            for key, value in entry["items"].items()
-            if value["status"] != "DONE"
-        )
-        for key in ["artifacts", "deviations", "reruns"]:
-            entry[key] = list(
-                dict.fromkeys(v for item in entry["items"].values() for v in item[key])
-            )
-        save(target, document)
-
-
 def dev_queries():
     ids = set(read_json("data/processed/splits.json")["dev"])
     return [q for q in read_jsonl("data/processed/queries.jsonl") if q["id"] in ids]

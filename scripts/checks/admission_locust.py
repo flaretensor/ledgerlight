@@ -5,10 +5,10 @@ import time
 
 import gevent
 import httpx
-from bench_runtime import OUT, Sampler, dev_queries, mark_step, save, summarize_samples, summary
 from locust import HttpUser, task
 from locust.env import Environment
 from locust.exception import StopUser
+from runtime_helpers import OUT, Sampler, dev_queries, save, summarize_samples, summary
 
 from ledgerlight.analysis import latency_summary
 
@@ -205,7 +205,6 @@ def main():
         save(OUT / "load/samples.json", monitor.samples)
         save(OUT / "load/result.json", result)
         summary("load", "aggregate", result)
-        mark_step(8, "8.4", "DONE", artifacts=["data/analysis/stage2/load/result.json"])
     finally:
         if monitor.thread.is_alive():
             monitor.finish()

@@ -5,11 +5,11 @@ import subprocess
 import time
 
 import httpx
-from bench_runtime import OUT, dev_queries, mark_step, save, summary
+from runtime_helpers import OUT, dev_queries, save, summary
 
 
 def rollback():
-    from live_proof import registered_hashes
+    from live_answers import registered_hashes
 
     from ledgerlight.registry import PIPELINE_NAME, client
     from ledgerlight.registry import rollback as move
@@ -68,12 +68,6 @@ def rollback():
     )
     save(OUT / "rollback/result.json", result)
     summary("rollback", "drill", result)
-    mark_step(
-        8,
-        "8.6",
-        "DONE" if result["passed"] else "FAILED",
-        artifacts=["data/analysis/stage2/rollback/result.json"],
-    )
     print(json.dumps(result, indent=2))
 
 
@@ -112,12 +106,6 @@ def observe():
         }
     save(OUT / "observability/result.json", result)
     summary("observability", "final", result)
-    mark_step(
-        8,
-        "8.8.observability",
-        "DONE" if result["passed"] else "FAILED",
-        artifacts=["data/analysis/stage2/observability/result.json"],
-    )
     print(json.dumps(result, indent=2))
     if not result["passed"]:
         raise RuntimeError("Observability checks failed")
@@ -166,12 +154,6 @@ def privacy():
     }
     save(OUT / "privacy/result.json", result)
     summary("privacy", "final", result)
-    mark_step(
-        5,
-        "5.privacy",
-        "DONE" if result["passed"] else "FAILED",
-        artifacts=["data/analysis/stage2/privacy/result.json"],
-    )
     print(json.dumps(result, indent=2))
 
 

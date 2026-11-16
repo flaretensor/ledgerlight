@@ -7,13 +7,12 @@ import time
 from argparse import Namespace
 
 import httpx
-from bench_runtime import (
+from runtime_helpers import (
     OUT,
     Sampler,
     ask_stream,
     dev_queries,
     lifecycle,
-    mark_step,
     save,
     summarize,
     summary,
@@ -92,7 +91,7 @@ def parity(only=None):
                     module.healthy("http://127.0.0.1:8002/v2/health/ready", time.monotonic() + 120)
                 with (directory / "measure.log").open("w") as stream:
                     subprocess.run(
-                        [sys.executable, "scripts/measure_parity.py", "--engine", engine],
+                        [sys.executable, "scripts/checks/backend_parity.py", "--engine", engine],
                         cwd=ROOT,
                         check=True,
                         stdout=stream,
@@ -232,7 +231,6 @@ def search_measure(engine, directory):
     save(directory / "search-rows.json", rows)
     save(target, result)
     summary("search_latency", engine, result)
-    mark_step(8, "8.2." + engine, "DONE", artifacts=[str(target.relative_to(ROOT))])
     return result
 
 
@@ -260,14 +258,6 @@ def search_retry(engine, reason):
         result["status"] = "DONE"
     except (OSError, RuntimeError, subprocess.SubprocessError, httpx.HTTPError) as exc:
         result.update(status="FAILED", cause=str(exc))
-        mark_step(
-            8,
-            "8.2." + engine,
-            "FAILED",
-            str(exc),
-            artifacts=[str(directory.relative_to(ROOT))],
-            reruns=[reason],
-        )
     finally:
         result["search_pass_memory"] = monitor.finish()
         save(directory / "samples.json", monitor.samples)
@@ -276,21 +266,18 @@ def search_retry(engine, reason):
         result["stop"] = read_json("data/runtime/stop.json")
         save(directory / "attempt.json", result)
         summary("search_retries", engine, result)
-    if result["status"] == "DONE":
-        mark_step(
-            8,
-            "8.2." + engine,
-            "DONE",
-            artifacts=[str((target / "search.json").relative_to(ROOT))],
-            reruns=[reason],
-        )
 
 
 def matrix():
     preparation = OUT / "matrix/preparation"
     preparation.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        [sys.executable, "scripts/quality.py", "--output", str(preparation / "quality")],
+        [
+            sys.executable,
+            "scripts/checks/data_quality.py",
+            "--output",
+            str(preparation / "quality"),
+        ],
         check=True,
         env=dict(os.environ, DVC_SITE_CACHE_DIR=str(ROOT / ".cache/dvc")),
     )
@@ -354,13 +341,6 @@ def matrix():
                     except httpx.HTTPError as exc:
                         result["search_pass_status"] = "FAILED"
                         result["search_pass_cause"] = str(exc)
-                        mark_step(
-                            8,
-                            "8.2." + engine,
-                            "FAILED",
-                            str(exc),
-                            artifacts=[str(directory.relative_to(ROOT))],
-                        )
             except (OSError, RuntimeError, subprocess.SubprocessError, httpx.HTTPError) as exc:
                 result = {
                     "status": "FAILED",
@@ -383,13 +363,6 @@ def matrix():
             result["stop"] = stop
             save(target, result)
             summary("matrix", engine + "/" + label, result)
-            mark_step(
-                8,
-                "8.1." + engine + "/" + label,
-                result["status"],
-                result.get("technical_error", ""),
-                artifacts=[str(target.relative_to(ROOT))],
-            )
 
 
 def choose_defaults(excluded=()):
@@ -456,7 +429,6 @@ def choose_defaults(excluded=()):
             },
         },
     )
-    mark_step(8, "8.3", "DONE", artifacts=["config/site.json"])
 
 
 def replay():
@@ -521,12 +493,6 @@ def replay():
     save(directory / "samples.json", monitor.samples)
     save(target, result)
     summary("replay", "dev118", result)
-    mark_step(
-        8,
-        "8.5",
-        "DONE" if result["passed"] else "FAILED",
-        artifacts=[str(target.relative_to(ROOT))],
-    )
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from bench_runtime import OUT, mark_step, save, summary
+from runtime_helpers import OUT, save, summary
 
 from ledgerlight.common import ROOT, digest
 
@@ -26,13 +26,13 @@ def run(command, directory, name, env=None):
 
 
 def main():
-    stage = OUT / "stage9/rehearsal"
-    stage.mkdir(parents=True, exist_ok=True)
-    if (stage / "result.json").exists():
-        raise RuntimeError("A completed clean rehearsal must not be repeated")
+    directory = OUT / "clean_clone"
+    directory.mkdir(parents=True, exist_ok=True)
+    if (directory / "result.json").exists():
+        raise RuntimeError("A completed clean clone must not be repeated")
     clone = ROOT.parent / ".cleanclone/ledgerlight"
     if clone.exists() or clone.is_symlink():
-        raise RuntimeError("Refusing to replace an existing rehearsal checkout")
+        raise RuntimeError("Refusing to replace an existing clean checkout")
     if subprocess.check_output(
         [
             "docker",
@@ -43,7 +43,7 @@ def main():
         ],
         text=True,
     ).strip():
-        raise RuntimeError("Refusing to reuse a pre-existing rehearsal Compose project")
+        raise RuntimeError("Refusing to reuse a pre-existing clean-clone Compose project")
     for resource in ["volume", "network"]:
         if subprocess.check_output(
             [
@@ -57,17 +57,19 @@ def main():
             text=True,
         ).strip():
             raise RuntimeError(
-                "Refusing to reuse pre-existing rehearsal " + resource + " resources"
+                "Refusing to reuse pre-existing clean-clone " + resource + " resources"
             )
     pending = subprocess.check_output(
         ["git", "status", "--porcelain"], cwd=ROOT, text=True
     ).splitlines()
-    if pending and pending != [" M .github/workflows/ci.yml"]:
-        raise RuntimeError("Commit and push the source before rehearsing origin main")
+    if pending:
+        raise RuntimeError("Commit and push the source before checking origin main")
     source_head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     remote_head = subprocess.check_output(
         ["git", "rev-parse", "origin/main"], cwd=ROOT, text=True
     ).strip()
+    if source_head != remote_head:
+        raise RuntimeError("Commit and push the source before checking origin main")
     if not clone.parent.resolve().is_relative_to(ROOT.parent):
         raise RuntimeError("Rehearsal parent escapes the wrapper")
     clone.parent.mkdir(parents=True, exist_ok=True)
@@ -76,7 +78,6 @@ def main():
     ).strip()
     result = {
         "source_head": source_head,
-        "excluded_uncommitted_workflow_bump": bool(pending),
         "origin_tracking_head": remote_head,
         "timings": {},
         "reused_images": [],
@@ -89,46 +90,13 @@ def main():
             "Use python scripts/site.py start|stop|status; public mode requires separately configured tunnel credentials and DNS.",
         ],
     }
-    run([str(ROOT / ".venv/bin/python"), "scripts/site.py", "stop"], stage, "stop-main")
-    clone_source = origin if source_head == remote_head else str(ROOT)
-    try:
-        result["timings"]["clone"] = run(
-            [
-                "git",
-                "clone",
-                "--no-tags",
-                "--single-branch",
-                "--branch",
-                "main",
-                clone_source,
-                str(clone),
-            ],
-            stage,
-            "clone",
-        )
-    except subprocess.CalledProcessError:
-        if clone_source != origin:
-            raise
-        if clone.exists():
-            shutil.rmtree(clone)
-        clone_source = str(ROOT)
-        result["timings"]["clone"] = run(
-            [
-                "git",
-                "clone",
-                "--no-tags",
-                "--single-branch",
-                "--branch",
-                "main",
-                clone_source,
-                str(clone),
-            ],
-            stage,
-            "clone-local-fallback",
-        )
-    result["clone_source"] = (
-        "origin main" if clone_source == origin else "local main (SSH push/clone unavailable)"
+    run([str(ROOT / ".venv/bin/python"), "scripts/site.py", "stop"], directory, "stop-main")
+    result["timings"]["clone"] = run(
+        ["git", "clone", "--no-tags", "--single-branch", "--branch", "main", origin, str(clone)],
+        directory,
+        "clone",
     )
+    result["clone_source"] = "origin main"
     result["clone_head"] = subprocess.check_output(
         ["git", "-C", str(clone), "rev-parse", "HEAD"], text=True
     ).strip()
@@ -173,10 +141,10 @@ def main():
             for file in directory.rglob("*"):
                 if file.is_file() and not file.is_symlink():
                     cache_hashes[str(file.relative_to(ROOT))] = digest(file)
-        save(stage / "reused-cache-sha256.json", cache_hashes)
+        save(directory / "reused-cache-sha256.json", cache_hashes)
         result["verified_cache_files"] = len(cache_hashes)
         result["timings"]["uv_sync"] = run(
-            ["uv", "sync", "--frozen", "--link-mode", "copy"], stage, "uv-sync", env
+            ["uv", "sync", "--frozen", "--link-mode", "copy"], directory, "uv-sync", env
         )
         result["timings"]["editable_import"] = run(
             [
@@ -184,7 +152,7 @@ def main():
                 "-c",
                 "from pathlib import Path; import ledgerlight; from ledgerlight.common import ROOT; assert Path(ledgerlight.__file__).is_relative_to(ROOT); print(ledgerlight.__file__)",
             ],
-            stage,
+            directory,
             "editable-import",
             env,
         )
@@ -211,16 +179,16 @@ def main():
                 str(ROOT),
                 "--prepare-only",
             ],
-            stage,
+            directory,
             "bootstrap",
             env,
         )
         save(
-            stage / "bootstrap-receipt.json",
+            directory / "bootstrap-receipt.json",
             json.loads((clone / "data/bootstrap/receipt.json").read_text()),
         )
         result["timings"]["start"] = run(
-            [str(clone / ".venv/bin/python"), "scripts/site.py", "start"], stage, "start", env
+            [str(clone / ".venv/bin/python"), "scripts/site.py", "start"], directory, "start", env
         )
         program = """import json,httpx
 from pathlib import Path
@@ -244,10 +212,10 @@ print(json.dumps({k:v for k,v in out.items() if k!="rankings"},indent=2))
 assert out["passed"]
 """
         result["timings"]["checks"] = run(
-            [str(clone / ".venv/bin/python"), "-c", program], stage, "checks", env
+            [str(clone / ".venv/bin/python"), "-c", program], directory, "checks", env
         )
         result["checks"] = json.loads((clone / "data/bootstrap/dev-check.json").read_text())
-        save(stage / "dev-check.json", result["checks"])
+        save(directory / "dev-check.json", result["checks"])
         result["cache_files_changed"] = [
             name
             for name, expected in cache_hashes.items()
@@ -257,14 +225,14 @@ assert out["passed"]
     except Exception as exc:
         result["passed"] = False
         result["error"] = type(exc).__name__ + ": " + str(exc)
-        save(stage / "failure.json", result)
+        save(directory / "failure.json", result)
         raise
     finally:
         if clone.exists():
             stop = (
                 run(
                     [str(clone / ".venv/bin/python"), "scripts/site.py", "stop"],
-                    stage,
+                    directory,
                     "stop-clone",
                     env,
                 )
@@ -292,7 +260,7 @@ assert out["passed"]
                     "--volumes",
                     "--remove-orphans",
                 ],
-                stage,
+                directory,
                 "remove-clone-resources",
                 env,
             )
@@ -300,15 +268,9 @@ assert out["passed"]
             result["clone_deleted"] = not clone.exists()
             if not any(clone.parent.iterdir()):
                 clone.parent.rmdir()
-        save(stage / "attempt.json", result)
-    save(stage / "result.json", result)
-    summary("release", "clean_rehearsal", result)
-    mark_step(
-        9,
-        "9.4",
-        "DONE" if result["passed"] else "FAILED",
-        artifacts=["data/analysis/stage2/stage9/rehearsal/result.json"],
-    )
+        save(directory / "attempt.json", result)
+    save(directory / "result.json", result)
+    summary("release", "clean_clone", result)
     print(json.dumps({k: v for k, v in result.items() if k != "checks"}, indent=2))
 
 

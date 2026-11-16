@@ -4,7 +4,7 @@ import subprocess
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / "data/pilot/ui-audit"
 IDS = {
     "answered": "02ecc8d1-7e0d-4126-bef1-246f49681afe",

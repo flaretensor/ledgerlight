@@ -7,8 +7,8 @@ import time
 from pathlib import Path
 
 import httpx
-from bench_runtime import OUT, mark_step, save, summary
 from playwright.sync_api import sync_playwright
+from runtime_helpers import OUT, save, summary
 
 
 def main():
@@ -163,12 +163,6 @@ def main():
     result["passed"] = result["filters_reset"]
     save(directory / "result.json", result)
     summary("browser", "checks", {k: v for k, v in result.items() if k != "growth_samples"})
-    mark_step(
-        8,
-        "8.7",
-        "DONE" if result["passed"] else "FAILED",
-        artifacts=["data/analysis/stage2/ui/result.json"],
-    )
     print(json.dumps({k: v for k, v in result.items() if k != "growth_samples"}, indent=2))
     if not result["passed"]:
         raise RuntimeError("Browser filter reset check failed; inspect the captured widget state")
