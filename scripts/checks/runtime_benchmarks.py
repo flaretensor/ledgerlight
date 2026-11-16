@@ -366,7 +366,7 @@ def matrix():
 
 
 def choose_defaults(excluded=()):
-    document = read_json("data/analysis/stage2/summary.json")
+    document = read_json("data/analysis/serving-benchmarks/summary.json")
     searches = {
         engine: result
         for engine, result in document.get("search_latency", {}).items()

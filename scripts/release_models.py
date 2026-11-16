@@ -93,7 +93,7 @@ def build_bundle(destination):
         "bytes": sum(p.stat().st_size for p in destination.rglob("*") if p.is_file()),
         "sums_sha256": digest(destination / "SHA256SUMS"),
     }
-    write_json("data/analysis/stage2/stage9/bundle.json", result)
+    write_json("data/analysis/serving-benchmarks/model-distribution/bundle.json", result)
     print(json.dumps(result, indent=2))
 
 

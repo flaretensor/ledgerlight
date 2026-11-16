@@ -12,7 +12,7 @@ import httpx
 from ledgerlight.analysis import latency_summary
 from ledgerlight.common import ROOT, read_json, read_jsonl
 
-OUT = ROOT / "data/analysis/stage2"
+OUT = ROOT / "data/analysis/serving-benchmarks"
 
 
 def save(target, value):

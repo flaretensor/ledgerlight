@@ -26,7 +26,7 @@ def main():
         required=True,
     )
     args = parser.parse_args()
-    target = "data/analysis/stage2/parity/" + args.engine + ".json"
+    target = "data/analysis/serving-benchmarks/parity/" + args.engine + ".json"
     if path(target).exists():
         raise RuntimeError("Parity result already exists; do not repeat a completed measurement")
     clock = time.monotonic()
@@ -56,7 +56,7 @@ def main():
         qvectors = encode_queries(encoder, [questions[q] for q in ids])
         reference = None
     else:
-        reference = read_json("data/analysis/stage2/parity/torch.json")
+        reference = read_json("data/analysis/serving-benchmarks/parity/torch.json")
         os.environ["LEDGERLIGHT_TRITON"] = "1" if engine.startswith("triton-") else "0"
         os.environ["LEDGERLIGHT_TRITON_URL"] = "127.0.0.1:8002"
         os.environ["LEDGERLIGHT_OPENVINO_DEVICE"] = "GPU" if engine == "openvino-gpu" else "CPU"

@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import secrets
@@ -26,11 +27,15 @@ def run(command, directory, name, env=None):
 
 
 def main():
-    directory = OUT / "clean_clone"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", type=Path, default=OUT / "clean_clone")
+    directory = parser.parse_args().output.resolve()
+    if not directory.is_relative_to(ROOT):
+        raise ValueError("Receipt directory escapes the project")
     directory.mkdir(parents=True, exist_ok=True)
     if (directory / "result.json").exists():
         raise RuntimeError("A completed clean clone must not be repeated")
-    clone = ROOT.parent / ".cleanclone/ledgerlight"
+    clone = ROOT / ".tmp/clean-clone/ledgerlight"
     if clone.exists() or clone.is_symlink():
         raise RuntimeError("Refusing to replace an existing clean checkout")
     if subprocess.check_output(
@@ -70,8 +75,8 @@ def main():
     ).strip()
     if source_head != remote_head:
         raise RuntimeError("Commit and push the source before checking origin main")
-    if not clone.parent.resolve().is_relative_to(ROOT.parent):
-        raise RuntimeError("Rehearsal parent escapes the wrapper")
+    if not clone.parent.resolve().is_relative_to(ROOT):
+        raise RuntimeError("Clean checkout parent escapes the project")
     clone.parent.mkdir(parents=True, exist_ok=True)
     origin = subprocess.check_output(
         ["git", "remote", "get-url", "origin"], cwd=ROOT, text=True
