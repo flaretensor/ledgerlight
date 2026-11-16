@@ -197,13 +197,15 @@ def base_snapshots(cache_root, reused):
                     }
                 )
         else:
-            target = Path(
+            source = Path(
                 snapshot_download(
                     specification["name"],
                     revision=specification["revision"],
                     allow_patterns=["*.json", "*.txt", "*.safetensors", "*.bin", "1_Pooling/**"],
                 )
             )
+            target = path(f".cache/bootstrap/base-models/{role}/{specification['revision']}")
+            shutil.copytree(source, target, symlinks=False, dirs_exist_ok=True)
         result[role] = target
     return result
 
