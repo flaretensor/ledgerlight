@@ -20,10 +20,7 @@ def workspace(tmp_path):
     (root / "scripts/env.sh").write_text('export PATH="' + str(binaries) + ':$PATH"\n')
     (root / "scripts/train.sh").write_text(
         "python - <<'PY'\nimport json, os, sys\n"
-        "print(json.dumps({'mode': os.environ.get('LEDGERLIGHT_RUN_MODE'), "
-        "'experiment': os.environ.get('LEDGERLIGHT_EXPERIMENT'), "
-        "'suffix': os.environ.get('LEDGERLIGHT_STUDY_SUFFIX'), "
-        "'python': sys.executable, 'cwd': os.getcwd()}), flush=True)\nPY\n"
+        "print(json.dumps({'python': sys.executable, 'cwd': os.getcwd()}), flush=True)\nPY\n"
     )
     tools = tmp_path / "bin"
     tools.mkdir()
@@ -32,9 +29,6 @@ def workspace(tmp_path):
     env = {
         **os.environ,
         "PATH": str(tools),
-        "LEDGERLIGHT_RUN_MODE": "pilot",
-        "LEDGERLIGHT_EXPERIMENT": "stale",
-        "LEDGERLIGHT_STUDY_SUFFIX": "-stale",
     }
     return root, tools, env
 
@@ -50,8 +44,6 @@ def output(root):
 
 
 def assert_environment(record, root):
-    assert record["mode"] == "canonical"
-    assert record["experiment"] is None and record["suffix"] is None
     assert record["python"] == str(root / ".venv/bin/python")
     assert record["cwd"] == str(root)
 
@@ -63,8 +55,7 @@ def test_tmux_command_initializes_a_stale_server_environment(tmp_path):
         f"#!{sys.executable}\nimport os, subprocess, sys\n"
         "if sys.argv[1] == 'has-session': sys.exit(1)\n"
         "assert sys.argv[1:5] == ['new-session', '-d', '-s', 'ledgerlight-train']\n"
-        "env = {**os.environ, 'PATH':'/usr/bin:/bin', 'LEDGERLIGHT_RUN_MODE':'pilot', "
-        "'LEDGERLIGHT_EXPERIMENT':'server', 'LEDGERLIGHT_STUDY_SUFFIX':'-server'}\n"
+        "env = {**os.environ, 'PATH':'/usr/bin:/bin'}\n"
         "sys.exit(subprocess.call(['/bin/bash', '-c', sys.argv[5]], env=env))\n"
     )
     tmux.chmod(0o755)

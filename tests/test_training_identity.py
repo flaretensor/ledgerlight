@@ -89,7 +89,6 @@ def test_explicit_test_requires_frozen_selection_and_refuses_repeat(monkeypatch,
     from ledgerlight.final_evaluation import evaluate_final
 
     monkeypatch.setattr(common, "ROOT", tmp_path)
-    monkeypatch.delenv("LEDGERLIGHT_RUN_MODE", raising=False)
     with pytest.raises(PermissionError):
         evaluate_final()
     with pytest.raises(FileNotFoundError, match="Missing DEV selection"):

@@ -11,35 +11,11 @@ load_dotenv(ROOT / ".env", override=False)
 
 
 def path(value):
-    if os.environ.get("LEDGERLIGHT_RUN_MODE") == "pilot":
-        isolated = (
-            "indices/",
-            "data/baselines/",
-            "data/training/",
-            "data/evaluation/",
-            "data/registry/",
-            "data/serving/",
-            "models/encoder/",
-            "models/cross_encoder/",
-            "models/ltr/",
-            "models/production/",
-            "models/onnx/",
-            "data/optuna.db",
-            "mlruns/",
-        )
-        name = str(value)
-        if any(name == prefix.rstrip("/") or name.startswith(prefix) for prefix in isolated):
-            experiment = os.environ.get("LEDGERLIGHT_EXPERIMENT", "")
-            return ROOT / "data/pilot" / experiment / name
     return ROOT / value
 
 
 def namespace():
-    base = (
-        "ledgerlight-pilot" if os.environ.get("LEDGERLIGHT_RUN_MODE") == "pilot" else "ledgerlight"
-    )
-    experiment = os.environ.get("LEDGERLIGHT_EXPERIMENT", "")
-    return base + ("-" + experiment if experiment else "")
+    return "ledgerlight"
 
 
 def read_json(value):

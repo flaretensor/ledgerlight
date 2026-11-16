@@ -23,13 +23,8 @@ from ledgerlight.retrieval import (
 )
 
 
-def pilot():
-    return os.environ.get("LEDGERLIGHT_RUN_MODE") == "pilot"
-
-
 def study_name(kind):
-    prefix = "pilot-" if pilot() else ""
-    return prefix + kind + os.environ.get("LEDGERLIGHT_STUDY_SUFFIX", "")
+    return kind
 
 
 def validate_study(study, stage):
@@ -188,8 +183,6 @@ def fit_encoder(config, seed, destination):
             optimizer.step()
             losses.append(float(loss.detach()))
             steps += 1
-            if pilot() and steps >= 24:
-                break
             if steps % 50 == 0:
                 print(
                     json.dumps(
@@ -201,14 +194,10 @@ def fit_encoder(config, seed, destination):
                     ),
                     flush=True,
                 )
-        if pilot() and steps >= 24:
-            break
     model.save_pretrained(str(path(destination)), create_model_card=False)
     seconds = time.monotonic() - started
     del optimizer, loss_fn
     model.eval()
-    if pilot():
-        print(json.dumps({"pilot_encoder_fit_seconds": seconds, "steps": steps}), flush=True)
     return model, {"training_seconds": seconds, "mean_loss": float(np.mean(losses)), "steps": steps}
 
 
@@ -253,7 +242,7 @@ def neural_encoder():
         load_if_exists=True,
     )
     validate_study(study, "encoder")
-    trial_limit = 1 if pilot() else 6
+    trial_limit = 6
     for number in range(len(history), trial_limit):
         trial = study.ask()
         config = {
@@ -291,15 +280,14 @@ def neural_encoder():
     seed_metrics = [
         {"seed": 42, **history[[h["trial"] for h in history].index(best_trial)]["metrics"]}
     ]
-    if not pilot():
-        for seed in [123, 2026]:
-            model, timing = fit_encoder(best_config, seed, f"models/encoder/seed-{seed}")
-            metrics = encoder_metrics(model)
-            tracking(f"encoder-seed-{seed}", {**metrics, **timing}, {**best_config, "seed": seed})
-            seed_metrics.append({"seed": seed, **metrics})
-            del model
-            gc.collect()
-            torch.cuda.empty_cache()
+    for seed in [123, 2026]:
+        model, timing = fit_encoder(best_config, seed, f"models/encoder/seed-{seed}")
+        metrics = encoder_metrics(model)
+        tracking(f"encoder-seed-{seed}", {**metrics, **timing}, {**best_config, "seed": seed})
+        seed_metrics.append({"seed": seed, **metrics})
+        del model
+        gc.collect()
+        torch.cuda.empty_cache()
     result = {
         "path": best_path,
         "config": best_config,
@@ -366,8 +354,6 @@ def fit_cross_encoder(config, seed, destination):
             torch.nn.utils.clip_grad_norm_(model.model.parameters(), 1.0)
             optimizer.step()
             losses.append(float(loss.detach()))
-            if pilot() and len(losses) >= 32:
-                break
             if len(losses) % 100 == 0:
                 print(
                     json.dumps(
@@ -379,8 +365,6 @@ def fit_cross_encoder(config, seed, destination):
                     ),
                     flush=True,
                 )
-        if pilot() and len(losses) >= 32:
-            break
     model.model.save_pretrained(str(path(destination)))
     model.tokenizer.save_pretrained(str(path(destination)))
     return model, {
@@ -515,7 +499,7 @@ def neural_cross_encoder():
     best = max(history, key=lambda h: h["metrics"]["ndcg@10"]) if history else None
     best_score = best["metrics"]["ndcg@10"] if best else -1
     selected_trial, selected_config = (best["trial"], best["config"]) if best else (None, None)
-    trial_limit = 1 if pilot() else 6
+    trial_limit = 6
     for number in range(len(history), trial_limit):
         trial = study.ask()
         config = {
@@ -551,23 +535,22 @@ def neural_cross_encoder():
     best_path = f"models/cross_encoder/trial-{selected_trial}"
     best_entry = next(h for h in history if h["trial"] == selected_trial)
     seed_metrics = [{"seed": 42, **best_entry["metrics"]}]
-    if not pilot():
-        for seed in [123, 2026]:
-            model, timing = fit_cross_encoder(
-                selected_config, seed, f"models/cross_encoder/seed-{seed}"
-            )
-            scored = score_ce(model, dev, context)
-            metrics, _ = evaluate(ce_rankings(scored, context), labels)
-            tracking(
-                f"cross-encoder-seed-{seed}",
-                {**metrics, **timing},
-                {**selected_config, "seed": seed},
-            )
-            seed_metrics.append({"seed": seed, **metrics})
-            write_json(f"data/training/ce_seed_{seed}.json", scored)
-            del model
-            gc.collect()
-            torch.cuda.empty_cache()
+    for seed in [123, 2026]:
+        model, timing = fit_cross_encoder(
+            selected_config, seed, f"models/cross_encoder/seed-{seed}"
+        )
+        scored = score_ce(model, dev, context)
+        metrics, _ = evaluate(ce_rankings(scored, context), labels)
+        tracking(
+            f"cross-encoder-seed-{seed}",
+            {**metrics, **timing},
+            {**selected_config, "seed": seed},
+        )
+        seed_metrics.append({"seed": seed, **metrics})
+        write_json(f"data/training/ce_seed_{seed}.json", scored)
+        del model
+        gc.collect()
+        torch.cuda.empty_cache()
     result = {
         "path": best_path,
         "config": selected_config,
@@ -711,7 +694,7 @@ def train_ltr():
         if path("data/training/ltr_trials.json").exists()
         else []
     )
-    for number in range(len(history), 3 if pilot() else params()["training"]["catboost_trials"]):
+    for number in range(len(history), params()["training"]["catboost_trials"]):
         trial = study.ask()
         config = {
             "iterations": trial.suggest_int("iterations", 150, 1500, step=50),
@@ -754,28 +737,27 @@ def train_ltr():
         print(json.dumps({"ltr_trial": trial.number, **metrics, "seconds": seconds}), flush=True)
     best = max(history, key=lambda h: h["metrics"]["ndcg@10"])
     seeds = [{"seed": 42, **best["metrics"]}]
-    if not pilot():
-        for seed in [123, 2026]:
-            model = CatBoostRanker(
-                **best["config"],
-                loss_function="YetiRank",
-                random_seed=seed,
-                thread_count=8,
-                verbose=False,
-                allow_writing_files=False,
-            )
-            started = time.monotonic()
-            model.fit(train_pool)
-            seconds = time.monotonic() - started
-            rankings = rank_ltr(model, dev_scored, context)
-            metrics, _ = evaluate(rankings, labels)
-            model.save_model(str(path(f"models/ltr/seed-{seed}.cbm")))
-            tracking(
-                f"catboost-seed-{seed}",
-                {**metrics, "training_seconds": seconds},
-                {**best["config"], "seed": seed, "upstream": upstream_name},
-            )
-            seeds.append({"seed": seed, **metrics})
+    for seed in [123, 2026]:
+        model = CatBoostRanker(
+            **best["config"],
+            loss_function="YetiRank",
+            random_seed=seed,
+            thread_count=8,
+            verbose=False,
+            allow_writing_files=False,
+        )
+        started = time.monotonic()
+        model.fit(train_pool)
+        seconds = time.monotonic() - started
+        rankings = rank_ltr(model, dev_scored, context)
+        metrics, _ = evaluate(rankings, labels)
+        model.save_model(str(path(f"models/ltr/seed-{seed}.cbm")))
+        tracking(
+            f"catboost-seed-{seed}",
+            {**metrics, "training_seconds": seconds},
+            {**best["config"], "seed": seed, "upstream": upstream_name},
+        )
+        seeds.append({"seed": seed, **metrics})
     selection = {
         "path": f"models/ltr/trial-{best['trial']}.cbm",
         "config": best["config"],

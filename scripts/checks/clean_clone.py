@@ -110,14 +110,11 @@ def main():
     env = dict(os.environ)
     for key in list(env):
         if key.startswith(("POSTGRES_", "GRAFANA_")) or key in {
-            "LEDGERLIGHT_EXPERIMENT",
-            "LEDGERLIGHT_STUDY_SUFFIX",
             "LEDGERLIGHT_REQUEST_DEADLINE",
         }:
             env.pop(key)
     env.update(
         LEDGERLIGHT_ROOT=str(clone),
-        LEDGERLIGHT_RUN_MODE="canonical",
         LEDGERLIGHT_COMPOSE_PROJECT="ledgerlight-cleanclone",
         HF_HOME=str(clone / ".cache/huggingface"),
         UV_CACHE_DIR=str(ROOT / ".cache/uv"),

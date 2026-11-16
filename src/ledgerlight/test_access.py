@@ -1,4 +1,3 @@
-import os
 from contextlib import contextmanager
 from contextvars import ContextVar
 
@@ -15,13 +14,13 @@ def guard_queries(query_ids):
     if path("data/processed/splits.json").exists():
         test = set(read_json("data/processed/splits.json")["test"])
         if test.intersection(query_ids) and not _ALLOWED.get():
-            raise PermissionError("TEST metrics require explicit --allow-test outside pilot mode")
+            raise PermissionError("TEST metrics require explicit --allow-test")
 
 
 @contextmanager
 def allow_test(enabled):
-    if not enabled or os.environ.get("LEDGERLIGHT_RUN_MODE") == "pilot":
-        raise PermissionError("TEST metrics require explicit --allow-test outside pilot mode")
+    if not enabled:
+        raise PermissionError("TEST metrics require explicit --allow-test")
     token = _ALLOWED.set(True)
     try:
         yield

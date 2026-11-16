@@ -13,7 +13,6 @@ x-app: &app
   security_opt: [no-new-privileges:true]
   environment: &app-env
     LEDGERLIGHT_ROOT: /workspace
-    LEDGERLIGHT_RUN_MODE: canonical
     LEDGERLIGHT_BIND_ADDRESS: 0.0.0.0
     MLFLOW_TRACKING_URI: http://mlflow:5000
     LEDGERLIGHT_QDRANT_URL: http://qdrant:6333

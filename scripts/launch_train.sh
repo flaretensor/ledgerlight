@@ -6,9 +6,6 @@ launch_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 if [[ "${1:-}" == "--check-env" ]]; then
     cd "$launch_root"
     source scripts/env.sh
-    unset LEDGERLIGHT_EXPERIMENT LEDGERLIGHT_STUDY_SUFFIX
-    export LEDGERLIGHT_RUN_MODE=canonical
-    printf 'LEDGERLIGHT_RUN_MODE=%s\n' "$LEDGERLIGHT_RUN_MODE"
     command -v python
     python --version
     uv --version
@@ -20,7 +17,7 @@ if [[ $# -ne 0 ]]; then
     exit 2
 fi
 
-printf -v launch_command 'cd %q && source scripts/env.sh && unset LEDGERLIGHT_EXPERIMENT LEDGERLIGHT_STUDY_SUFFIX && export LEDGERLIGHT_RUN_MODE=canonical && mkdir -p logs && exec bash scripts/train.sh >> logs/train.log 2>&1' "$launch_root"
+printf -v launch_command 'cd %q && source scripts/env.sh && mkdir -p logs && exec bash scripts/train.sh >> logs/train.log 2>&1' "$launch_root"
 
 if command -v tmux >/dev/null 2>&1; then
     if tmux has-session -t '=ledgerlight-train' 2>/dev/null; then

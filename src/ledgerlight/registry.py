@@ -170,12 +170,7 @@ def rollback():
     return result
 
 
-def register_all(*, allow_pilot=False):
-    import os
-
-    if os.environ.get("LEDGERLIGHT_RUN_MODE") == "pilot" and not allow_pilot:
-        raise PermissionError("Production registration is disabled in pilot mode")
-
+def register_all():
     from huggingface_hub import snapshot_download
 
     from ledgerlight.final_evaluation import training_fingerprint

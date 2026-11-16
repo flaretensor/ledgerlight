@@ -1,6 +1,5 @@
 import hashlib
 import json
-import os
 
 from ledgerlight.common import ROOT, digest, params, path, read_json
 
@@ -9,7 +8,6 @@ def resolved_parameters():
     import torch
 
     return {
-        "run_mode": os.environ.get("LEDGERLIGHT_RUN_MODE", "canonical"),
         "precision": "bfloat16" if torch.cuda.is_bf16_supported() else "float32",
         "params": params(),
         "encoder": {
@@ -43,13 +41,6 @@ def resolved_parameters():
         },
         "optimizer": {"name": "AdamW", "weight_decay": 0.01, "clip_norm": 1.0},
         "seeds": [42, 123, 2026],
-        "pilot": {
-            "encoder_trials": 1,
-            "encoder_steps": 24,
-            "cross_encoder_trials": 1,
-            "cross_encoder_steps": 32,
-            "ranker_trials": 3,
-        },
     }
 
 

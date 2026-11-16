@@ -39,10 +39,8 @@ def run():
     from ledgerlight.final_evaluation import evaluate_dev
     from ledgerlight.registry import register_all
     from ledgerlight.retrieval import embed, lexical_index
-    from ledgerlight.training import neural_cross_encoder, neural_encoder, pilot, prepare, train_ltr
+    from ledgerlight.training import neural_cross_encoder, neural_encoder, prepare, train_ltr
 
-    if pilot() and os.environ.get("LEDGERLIGHT_EXPERIMENT") != "rehearsal":
-        raise ValueError("This entry point requires an isolated pilot rehearsal")
     if not path("data/processed/splits.json").exists():
         raise FileNotFoundError("Download and validate the pinned dataset before training")
     if digest(path("data/raw/FinRank.jsonl")) != params()["data"]["sha256"]:
@@ -122,7 +120,7 @@ def run():
             (
                 "registry",
                 "pipeline",
-                lambda: register_all(allow_pilot=pilot()),
+                register_all,
                 ["data/registry/versions.json"],
             ),
         ]

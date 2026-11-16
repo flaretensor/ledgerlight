@@ -177,7 +177,7 @@ def test_chat_template_budget_and_token_trimming():
     assert messages[1]["content"].split("\n")[-1] in issued["[[SRC_a]]"]["windows"][0]
 
 
-def test_test_permission_and_pilot_output_isolation(monkeypatch, tmp_path):
+def test_test_permission(monkeypatch, tmp_path):
     from ledgerlight import common
     from ledgerlight.evaluation import evaluate
     from ledgerlight.final_evaluation import evaluate_final
@@ -191,12 +191,8 @@ def test_test_permission_and_pilot_output_isolation(monkeypatch, tmp_path):
         evaluate({"held-out": ["p0"]}, {"held-out": {"positives": ["p0"]}})
     with pytest.raises(PermissionError):
         evaluate_final()
-    monkeypatch.setenv("LEDGERLIGHT_RUN_MODE", "pilot")
-    with pytest.raises(PermissionError), allow_test(True):
+    with pytest.raises(PermissionError), allow_test(False):
         pass
-    assert common.path("models/encoder/trial-0") == tmp_path / "data/pilot/models/encoder/trial-0"
-    assert common.path("data/optuna.db") == tmp_path / "data/pilot/data/optuna.db"
-    assert common.path("data/processed/corpus.jsonl") == tmp_path / "data/processed/corpus.jsonl"
 
 
 def test_ce_training_selects_the_serving_encoder_window():
