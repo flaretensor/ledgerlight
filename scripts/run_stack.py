@@ -10,57 +10,16 @@ from ledgerlight.common import ROOT, namespace
 
 
 def command():
-    experiment = os.environ.get("LEDGERLIGHT_EXPERIMENT", "")
-    pilot = os.environ.get("LEDGERLIGHT_RUN_MODE") == "pilot"
-    if experiment and (not pilot or experiment != "rehearsal"):
-        raise ValueError("Only the isolated pilot rehearsal experiment is supported")
     config = {"services": {}}
     for service in ["mlflow", "retrieval", "llama", "gateway", "ui"]:
         config["services"][service] = {
-            "image": "ledgerlight-pilot-smoke:local" if pilot else "ledgerlight-rebuild:local",
+            "image": "ledgerlight-rebuild:local",
             "environment": {
-                "LEDGERLIGHT_RUN_MODE": "pilot" if pilot else "canonical",
-                "LEDGERLIGHT_EXPERIMENT": experiment,
+                "LEDGERLIGHT_RUN_MODE": "canonical",
                 "HF_HUB_OFFLINE": "1",
                 "TRANSFORMERS_OFFLINE": "1",
                 "LEDGERLIGHT_BACKEND": "torch",
             },
-        }
-    if experiment:
-        storage = "data/pilot/" + experiment + "/runtime"
-        for name in [
-            "postgres",
-            "postgres-socket",
-            "grafana",
-            "grafana-logs",
-            "prometheus",
-            "qdrant",
-        ]:
-            (ROOT / storage / name).mkdir(parents=True, exist_ok=True)
-        config["services"]["postgres"] = {
-            "volumes": [
-                f"./{storage}/postgres:/var/lib/postgresql/18/docker",
-                f"./{storage}/postgres-socket:/var/run/postgresql",
-            ]
-        }
-        config["services"]["qdrant"] = {
-            "environment": {
-                "QDRANT__STORAGE__STORAGE_PATH": f"/workspace/{storage}/qdrant/storage",
-                "QDRANT__STORAGE__SNAPSHOTS_PATH": f"/workspace/{storage}/qdrant/snapshots",
-            }
-        }
-        config["services"]["prometheus"] = {
-            "command": [
-                "--config.file=/workspace/config/prometheus.pilot.yaml",
-                f"--storage.tsdb.path=/workspace/{storage}/prometheus",
-                "--web.listen-address=127.0.0.1:9090",
-            ]
-        }
-        config["services"]["grafana"] = {
-            "environment": {
-                "GF_PATHS_DATA": f"/workspace/{storage}/grafana",
-                "GF_PATHS_LOGS": f"/workspace/{storage}/grafana-logs",
-            }
         }
     override = ROOT / ".tmp" / (namespace() + ".compose.yaml")
     override.parent.mkdir(exist_ok=True)
@@ -131,7 +90,6 @@ def main(action):
 if __name__ == "__main__":
     if (
         len(sys.argv) > 1
-        and os.environ.get("LEDGERLIGHT_RUN_MODE") != "pilot"
         and sys.argv[1] in {"start", "stop", "status"}
     ):
         os.execv(sys.executable, [sys.executable, str(ROOT / "scripts/site.py"), *sys.argv[1:]])
