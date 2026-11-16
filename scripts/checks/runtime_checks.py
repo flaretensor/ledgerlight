@@ -139,13 +139,10 @@ def privacy():
         exists = connection.execute(
             "SELECT to_regclass('public.ask_requests') IS NOT NULL"
         ).fetchone()[0]
-        count = (
-            connection.execute("SELECT count(*) FROM ask_requests").fetchone()[0] if exists else 0
-        )
     result = {
         "logs": rows,
-        "legacy_request_rows": count,
-        "passed": count == 0
+        "legacy_request_table_exists": exists,
+        "passed": not exists
         and all(
             r["native_dev_questions_found"] == 0 and not r["benchmark_client_addresses_found"]
             for r in rows

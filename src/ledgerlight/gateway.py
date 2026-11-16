@@ -27,7 +27,6 @@ from ledgerlight.observability import (
     REQUESTS,
     STAGES,
 )
-from ledgerlight.request_log import initialize
 
 RETRIEVAL_URL = os.environ.get("LEDGERLIGHT_RETRIEVAL_URL", "http://127.0.0.1:8001")
 LLM_URL = os.environ.get("LEDGERLIGHT_LLM_URL", "http://127.0.0.1:8091")
@@ -46,7 +45,6 @@ SYSTEM = (
 
 @asynccontextmanager
 async def lifespan(app):
-    initialize()
     for outcome in ["ok", "abstained", "busy", "rate", "too_long", "timeout", "error"]:
         OUTCOMES.labels(outcome).inc(0)
     ERRORS.labels("gateway", "error").inc(0)
