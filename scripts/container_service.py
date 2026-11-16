@@ -119,6 +119,8 @@ elif kind == "llama":
         "8091",
         "--ctx-size",
         "8192",
+        "--cache-ram",
+        "2048",
         "--parallel",
         "1",
         "--n-gpu-layers",
