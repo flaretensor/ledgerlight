@@ -113,7 +113,7 @@ Trained weights are not stored in Git. They ship as a model bundle of 25 files (
 ```sh
 python scripts/release_models.py bootstrap --bundle PATH
 # or, from a Hugging Face model repository pinned to a full commit hash:
-python scripts/release_models.py bootstrap --repo REPOSITORY --revision COMMIT
+python scripts/release_models.py bootstrap --repo flaretensor/ledgerlight-models --revision e6a5af4b81d1928439c56f985ddd761bca9d0e4d
 ```
 
 On the reference machine, the bootstrap took 14 to 16 minutes with downloads already cached.
