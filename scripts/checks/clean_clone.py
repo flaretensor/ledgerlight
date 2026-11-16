@@ -137,8 +137,8 @@ def main():
     local.chmod(0o600)
     try:
         cache_hashes = {}
-        for directory in [ROOT / ".python", ROOT / ".cache/uv/archive-v0"]:
-            for file in directory.rglob("*"):
+        for cache_directory in [ROOT / ".python", ROOT / ".cache/uv/archive-v0"]:
+            for file in cache_directory.rglob("*"):
                 if file.is_file() and not file.is_symlink():
                     cache_hashes[str(file.relative_to(ROOT))] = digest(file)
         save(directory / "reused-cache-sha256.json", cache_hashes)
