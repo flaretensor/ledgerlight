@@ -337,7 +337,7 @@ with ask_tab:
                     args=(example["question"],),
                 )
     answer_area = st.container(key="response")
-    with st.expander("Which companies are covered?", key="company_coverage", on_change="rerun"):
+    with st.expander("Which companies are covered?", key="company_coverage"):
         st.markdown(
             "Energy: Cheniere Energy, Chevron, ConocoPhillips, Coterra Energy, Devon Energy, Energy Transfer, Enterprise Products, EOG Resources, ExxonMobil, Kinder Morgan, Marathon Petroleum, Williams Companies\n\n"
             "Healthcare: AbbVie, Amgen, Eli Lilly, Johnson & Johnson, Merck, Moderna, Pfizer\n\n"
