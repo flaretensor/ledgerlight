@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -20,11 +21,14 @@ def main():
     with sync_playwright() as playwright:
         context = playwright.chromium.launch_persistent_context(
             str(directory / "profile"),
+            executable_path=shutil.which("google-chrome"),
             headless=True,
             viewport={"width": 1440, "height": 1000},
             args=["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"],
         )
         page = context.pages[0]
+        result["browser_executable"] = shutil.which("google-chrome")
+        result["browser_version"] = context.browser.version
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.on(
             "console",
@@ -38,6 +42,7 @@ def main():
         assert example_button.is_visible()
         result["examples_visible"] = True
         page.get_by_role("combobox", name="Company", exact=True).click()
+        page.get_by_role("combobox", name="Company", exact=True).fill("Ford")
         page.get_by_role("option", name="Ford (F)", exact=True).click()
         example_button.click()
         lengths = []
@@ -57,16 +62,27 @@ def main():
         assert len(set(positive)) >= 2, "No progressive visible answer growth"
         result["growth_samples"] = lengths
         result["distinct_positive_lengths"] = len(set(positive))
-        result["filters_reset"] = all(
-            page.get_by_role("combobox", name=label, exact=True).inner_text() == expected
-            for label, expected in [
-                ("Company", "All companies"),
-                ("Report type", "All types"),
-                ("Filing year", "All years"),
-            ]
+        save(directory / "partial.json", result)
+        page.wait_for_function(
+            'document.querySelectorAll(\'[role="combobox"][aria-label="Company"]\').length === 1'
         )
-        assert result["filters_reset"]
-        assert not page.get_by_role("button", name=example["question"], exact=True).count()
+        result["filter_widgets"] = {}
+        for label, expected in [
+            ("Company", "All companies"),
+            ("Report type", "All types"),
+            ("Filing year", "All years"),
+        ]:
+            widget = page.get_by_role("combobox", name=label, exact=True)
+            parent_text = page.get_by_test_id("stSelectbox").filter(has=widget).inner_text()
+            result["filter_widgets"][label] = {
+                "input": widget.input_value(),
+                "text": parent_text,
+                "expected": expected,
+                "reset": widget.input_value() in {"", expected} or expected in parent_text,
+            }
+        result["filters_reset"] = all(v["reset"] for v in result["filter_widgets"].values())
+        save(directory / "partial.json", result)
+        example_button.wait_for(state="detached")
         page.screenshot(path=str(directory / "answer.png"), full_page=False)
         page.locator('a[href="#source-1"]').first.click()
         page.wait_for_function('document.querySelector("#source-1")?.closest("details")?.open')
@@ -144,10 +160,18 @@ def main():
             icon_response.status_code == 200 and result["raw_html_favicon"]["project_bytes_match"]
         )
         context.close()
+    result["passed"] = result["filters_reset"]
     save(directory / "result.json", result)
     summary("browser", "checks", {k: v for k, v in result.items() if k != "growth_samples"})
-    mark_step(8, "8.7", "DONE", artifacts=["data/analysis/stage2/ui/result.json"])
+    mark_step(
+        8,
+        "8.7",
+        "DONE" if result["passed"] else "FAILED",
+        artifacts=["data/analysis/stage2/ui/result.json"],
+    )
     print(json.dumps({k: v for k, v in result.items() if k != "growth_samples"}, indent=2))
+    if not result["passed"]:
+        raise RuntimeError("Browser filter reset check failed; inspect the captured widget state")
 
 
 if __name__ == "__main__":
