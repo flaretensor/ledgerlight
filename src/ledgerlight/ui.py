@@ -192,7 +192,7 @@ st.html(
     [data-testid="stCaptionContainer"],[data-testid="stCaptionContainer"] p,
     [role="tooltip"], [role="tooltip"] p,
     [data-testid="stWidgetLabel"] p,[data-baseweb="select"]{color:#1f1f1f!important;opacity:1}
-    .st-key-ask_form [data-testid="stSelectbox"] [data-testid="stWidgetLabelRequired"]{display:none}
+    :is(.st-key-ticker_input,.st-key-form_input,.st-key-year_input) [data-testid="stWidgetLabelRequired"]{display:none}
     [data-testid="stCaptionContainer"] p{font-size:15px}
     .st-key-answer_stats [data-testid="stCaptionContainer"] p{font-size:13px}
     .st-key-answer_text [data-testid="stMarkdownContainer"]{margin-bottom:0;line-height:1.45}
