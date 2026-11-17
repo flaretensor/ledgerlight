@@ -4,7 +4,7 @@ Ledgerlight answers questions about the financial reports of 22 U.S. companies a
 
 **Demo:** <https://ledgerlight.flaretensor.uk> (online only while the stack is running)
 
-**Result:** on held-out TEST questions, the full ranking pipeline reaches nDCG@10 of 38.58%, against 22.79% for BM25 (+15.79 points, 95% CI 10.27 to 21.44). This measures retrieval, not answer correctness; see [What the results do and don't show](#what-the-results-do-and-dont-show).
+**Result:** on held-out TEST questions, the full ranking pipeline reaches nDCG@10 of 38.58%, against 22.79% for BM25 (+15.79 points, 95% CI 10.27 to 21.44). For how to read these numbers, see [How to read the results](#how-to-read-the-results).
 
 ## Stack
 
@@ -15,23 +15,33 @@ Ledgerlight answers questions about the financial reports of 22 U.S. companies a
 
 ## Data
 
-The passages come from [FinRank](https://github.com/datanxt/FinRank/tree/916dc27e77b90e294ea1b3a2cc5b0abcf07392d1) ([paper](https://arxiv.org/abs/2608.07400)): 5,230 curated excerpts from 10-K and 10-Q filings of 22 energy, healthcare and automotive companies. They are excerpts, not complete reports, and the dataset has no links to the original filings.
+The passages come from [FinRank](https://github.com/datanxt/FinRank/tree/916dc27e77b90e294ea1b3a2cc5b0abcf07392d1) ([paper](https://arxiv.org/abs/2608.07400)): 5,230 curated excerpts from the 10-K and 10-Q filings of 22 energy, healthcare and automotive companies. The dataset has no links to the original filings. Each passage carries one or more source records with ticker, form type, filing year and page.
 
 FinRank also has 1,185 human-written questions with passage-level relevance labels. Ledgerlight uses its split: 948 TRAIN, 118 DEV and 119 TEST questions.
 
+## Passages and windows
+
+The pipeline works with two units.
+
+- **Passage.** One of the 5,230 FinRank excerpts. Relevance labels, rankings and the sources shown in the interface all refer to passages.
+- **Window.** A piece of a passage, at most 448 tokens long. The dense encoder and the cross-encoder read windows.
+
+Passages longer than 448 tokens are cut into overlapping windows with a step of 320 tokens; a shorter passage forms a single window. 3,246 of the 5,230 passages are longer than the encoder's 512-token limit. The cutting yields 12,604 windows in total. Window boundaries follow character offsets in the original text, so figures like `$31.9 billion` reach the models exactly as written. The 448-token size leaves room for the question in the cross-encoder's 512-token input.
+
+A passage's best window is the window whose embedding is closest to the question. The cross-encoder and the language model read this window.
+
 ## How a question is answered
 
-1. **Filters.** Optional company, form type (10-K or 10-Q) and filing year. Filters apply before retrieval and are never taken from the relevance labels.
-2. **Retrieval.** BM25 (`bm25s`) and a fine-tuned `bge-small-en-v1.5` encoder (384 dimensions, stored in Qdrant) each return 100 candidates.
-3. **Fusion.** Reciprocal rank fusion (k = 10) merges the two lists.
-4. **Cross-encoder.** A fine-tuned MiniLM-L6 cross-encoder scores the 100 fused candidates.
-5. **Ranking.** A CatBoost YetiRank model reorders them using 14 features: the BM25, dense, fusion and cross-encoder scores and ranks; passage and question length; window count; and whether the question's ticker, year and form match the passage metadata.
-6. **Generation.** The top five passages each contribute one window to Qwen3.5-2B (Q4_K_M GGUF, run by llama.cpp), with an 8,192-token context, a 512-token thinking budget and a 1,024-token limit.
-7. **Validation.** The gateway turns valid source markers into numbered citations and rejects invented markers, URLs and HTML. Answers stream as they are generated, and the model's reasoning stays hidden.
-
-### Long passages
-
-3,246 of the 5,230 passages are longer than the encoder's 512-token limit. Each passage is cut into overlapping windows of 448 tokens with a step of 320 (12,604 windows in total) and scored by its best window. Windows follow character offsets in the original text, so figures like `$31.9 billion` reach the models exactly as written. The 448-token size leaves room for the question in the cross-encoder's 512-token input.
+| Step | Reads | Produces |
+| --- | --- | --- |
+| 1. Filters | Optional company, form type (10-K or 10-Q) and filing year chosen by the user, and the source records of each passage. The filter values never come from the relevance labels. | The passages with at least one source record that matches every chosen filter. Filtering happens before retrieval. |
+| 2. BM25 (`bm25s`) | The question and the full text of each remaining passage. | The 100 highest-scoring passages. |
+| 3. Dense retrieval (fine-tuned `bge-small-en-v1.5`, Qdrant) | The question and the 384-dimensional vector of every window. A passage scores as its best window. | The 100 highest-scoring passages. |
+| 4. Fusion (reciprocal rank fusion, k = 10) | The two lists of 100 passages. | The 100 best passages of the merged ranking. |
+| 5. Cross-encoder (fine-tuned MiniLM-L6) | The question paired with the best window of each of the 100 passages. | One relevance score per passage. |
+| 6. Ranking (CatBoost YetiRank) | 14 features per passage: the BM25, dense, fusion and cross-encoder scores and ranks; passage length in tokens; window count; question length; and whether the question's ticker, year and form match the passage metadata. | The final order of the 100 passages. |
+| 7. Generation (Qwen3.5-2B, Q4_K_M GGUF, llama.cpp) | The question and the best window of each of the top five passages, each labeled with a source marker and its ticker, form type, filing year and page. Context: 8,192 tokens, thinking budget: 512 tokens, generation limit: 1,024 tokens. | An answer with source markers. |
+| 8. Validation (gateway) | The generated answer. | Numbered citations for valid source markers; invented markers, URLs and HTML are rejected. The answer streams as it is generated, and the model's reasoning stays hidden. |
 
 ## Evaluation
 
@@ -73,12 +83,12 @@ Only the first comparison was planned before TEST was scored. The others, and ev
 - **Larger encoder.** `bge-large-en-v1.5`, used as published, reaches 24.54% (dense) and 25.44% (fused) TEST nDCG@10. The fine-tuned small encoder is 4.42 points ahead of the dense figure, with an interval that includes zero (−0.84 to 9.55). The full pipeline is 13.14 points ahead of the fused large-encoder baseline (7.58 to 19.02).
 - **Known passages.** For 70 of the 119 TEST questions (78 with normalized text matching), a relevant passage is also labeled relevant for some TRAIN question. The gain over BM25 is 12.98 points on those 70 and 19.81 on the other 49, so it is positive in both groups.
 
-## What the results do and don't show
+## How to read the results
 
-- **Retrieval, not answer correctness.** The metrics measure whether labeled passages are ranked high; the FinRank authors also leave answer evaluation to future work. A valid citation shows the model pointed at a retrieved passage, not that the passage supports the statement or that a figure is right. Of the 88 cited DEV answers, 40 cite at least one passage labeled relevant. That is an overlap count, not an accuracy.
-- **Incomplete labels.** Each question has one annotator's gold passages, and a passage can be relevant to more than one question (see §3.7 and §9 of the [paper](https://arxiv.org/abs/2608.07400)). Passages nobody judged count as non-relevant in every metric and in the ranker's training targets, except whitespace-equivalent copies of known positives, which are excluded from the targets.
-- **One corpus for all splits.** The TEST questions are new, but the passage pool is shared with training, so the results say nothing about unseen documents, other companies or other periods.
-- **Filing year is not fiscal year.** The year metadata is the filing year, sometimes imputed by the dataset authors. A question about fiscal 2024 is often answered by a 2025 filing, so a year filter can hide the right passage.
+- **Retrieval metrics.** nDCG, Recall and MRR measure how high the labeled passages rank. The quality of generated answers was not evaluated; the FinRank authors also leave answer evaluation to future work. The gateway checks that each citation marker refers to a retrieved passage. Whether that passage supports the statement, or whether a figure is right, was not checked. Of the 88 cited DEV answers, 40 cite at least one passage labeled relevant.
+- **Incomplete labels.** One annotator wrote the gold passages for each question, and a passage can be relevant to more than one question (see §3.7 and §9 of the [paper](https://arxiv.org/abs/2608.07400)). Passages that nobody judged count as non-relevant in every metric and in the ranker's training targets, except whitespace-equivalent copies of known positives, which are excluded from the targets.
+- **One corpus for all splits.** The TEST questions are new, and the passage pool is shared with training. The results therefore say nothing about unseen documents, other companies or other periods.
+- **Filing year.** The year metadata is the filing year, sometimes imputed by the dataset authors. A question about fiscal 2024 is often answered by a 2025 filing, so a year filter can hide the right passage.
 
 ## Serving
 
@@ -101,7 +111,7 @@ With the default backend, replaying the 118 DEV questions one at a time through 
 
 ## Running it
 
-Requirements: Python 3.12, uv and Docker Compose. GPU serving needs an NVIDIA GPU and the NVIDIA container runtime. CPU mode uses no GPU memory, but the start command still expects `nvidia-smi` to be present.
+Requirements: Python 3.12, uv and Docker Compose. GPU serving needs an NVIDIA GPU and the NVIDIA container runtime. CPU mode runs without a GPU.
 
 ### Setup
 
@@ -114,7 +124,7 @@ docker compose --profile triton pull --ignore-buildable
 
 ### Models
 
-Trained weights are not stored in Git. They are published on [Hugging Face](https://huggingface.co/flaretensor/ledgerlight-models) as a model bundle of 25 files (674 MB): the fine-tuned encoder, cross-encoder and ranker with tokenizers and configs, their ONNX exports, `SHA256SUMS` and `provenance.json`. The bootstrap command verifies the checksums, downloads the pinned FinRank file and the pinned Qwen GGUF, and rebuilds the windows, the BM25 and Qdrant indexes and the registry:
+The trained weights are published on [Hugging Face](https://huggingface.co/flaretensor/ledgerlight-models) as a model bundle of 25 files (674 MB): the fine-tuned encoder, cross-encoder and ranker with tokenizers and configs, their ONNX exports, `SHA256SUMS` and `provenance.json`. The bootstrap command verifies the checksums, downloads the pinned FinRank file and the pinned Qwen GGUF, and rebuilds the windows, the BM25 and Qdrant indexes and the registry:
 
 ```sh
 python scripts/release_models.py bootstrap --repo flaretensor/ledgerlight-models --revision e6a5af4b81d1928439c56f985ddd761bca9d0e4d
@@ -144,7 +154,7 @@ bash scripts/train.sh                  # resumable training, DEV selection, regi
 bash scripts/ci.sh                     # lint, format, tests, leakage checks, synthetic CPU pipeline
 ```
 
-Training took about two and a half hours on the reference device. The data and index stages are also declared as a DVC pipeline in `dvc.yaml`. No DVC remote is configured.
+Training took about two and a half hours on the reference device. `dvc.yaml` also declares the stages from data ingestion to DEV evaluation as a DVC pipeline. No DVC remote is configured.
 
 The published weights come from one frozen run. The code has been edited since, so retraining starts a new run and will not reproduce the published weights exactly.
 
@@ -154,6 +164,6 @@ GitHub Actions runs `scripts/ci.sh` on every push. It needs neither a GPU nor Do
 
 Code is licensed under [Apache-2.0](LICENSE).
 
-The FinRank annotations are CC BY-NC 4.0 and are not redistributed here; the pinned commit `916dc27e77b90e294ea1b3a2cc5b0abcf07392d1` is downloaded and checked against a SHA256. The underlying SEC filings are separate from that license. The trained weights are published at [flaretensor/ledgerlight-models](https://huggingface.co/flaretensor/ledgerlight-models) and carry CC BY-NC 4.0 metadata because they were trained on those annotations.
+The FinRank annotations are CC BY-NC 4.0 and are not redistributed here; the pinned commit `916dc27e77b90e294ea1b3a2cc5b0abcf07392d1` is downloaded and checked against a SHA256. The underlying SEC filings carry a separate license. The trained weights are published at [flaretensor/ledgerlight-models](https://huggingface.co/flaretensor/ledgerlight-models) and carry CC BY-NC 4.0 metadata because they were trained on those annotations.
 
 Base models keep their own licenses: `BAAI/bge-small-en-v1.5` (MIT), `cross-encoder/ms-marco-MiniLM-L6-v2` (Apache-2.0) and Qwen3.5-2B (Apache-2.0).
