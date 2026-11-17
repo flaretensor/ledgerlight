@@ -43,6 +43,25 @@ def payload_filter(filters):
     )
 
 
+def eligible_passages(corpus, filters):
+    return np.asarray([any(source_matches(s, filters) for s in p["sources"]) for p in corpus])
+
+
+def lexical_scores(index, question, eligible):
+    lexical = index.get_scores(re.findall(r"\w+", question.lower())).astype(np.float64)
+    lexical[~eligible] = -np.inf
+    return lexical
+
+
+def fusion_scores(lexical, dense_order, eligible, rrf_k):
+    fusion = np.zeros(len(lexical), dtype=np.float64)
+    for indices in [order(lexical)[: min(100, int(eligible.sum()))], dense_order]:
+        indices = np.asarray(indices, dtype=np.int64)
+        fusion[indices] += 1 / (rrf_k + np.arange(1, len(indices) + 1))
+    fusion[~eligible] = -np.inf
+    return fusion
+
+
 class SearchEngine:
     def __init__(self, config, device="cuda", qdrant_url="http://127.0.0.1:6333"):
         self.config = config
@@ -114,9 +133,7 @@ class SearchEngine:
     def search(self, question, filters=None, limit=5):
         started = time.perf_counter()
         filters = {k: v for k, v in (filters or {}).items() if v is not None and v != ""}
-        eligible = np.asarray(
-            [any(source_matches(s, filters) for s in p["sources"]) for p in self.corpus]
-        )
+        eligible = eligible_passages(self.corpus, filters)
         if not eligible.any():
             return {
                 "results": [],
@@ -127,8 +144,7 @@ class SearchEngine:
             }
         timings = {}
         clock = time.perf_counter()
-        lexical = self.index.get_scores(re.findall(r"\w+", question.lower())).astype(np.float64)
-        lexical[~eligible] = -np.inf
+        lexical = lexical_scores(self.index, question, eligible)
         timings["bm25"] = time.perf_counter() - clock
         clock = time.perf_counter()
         qvector = self.encoder.encode(
@@ -136,6 +152,21 @@ class SearchEngine:
         )
         timings["embed"] = time.perf_counter() - clock
         clock = time.perf_counter()
+        dense, dense_order, qdrant_scores = self.dense_candidates(qvector, eligible, filters)
+        fusion = fusion_scores(lexical, dense_order, eligible, self.config["rrf_k"])
+        timings["qdrant"] = time.perf_counter() - clock
+        scores = lexical, dense, fusion
+        candidates, ranked, ce, ltr = self.rerank(
+            question, qvector, eligible, scores, dense_order, timings
+        )
+        stage_candidates, traces = self.trace_candidates(
+            candidates, eligible, scores, qdrant_scores, dense_order, ce, ltr
+        )
+        return self.assemble_response(
+            qvector, ranked, limit, traces, filters, timings, started, stage_candidates
+        )
+
+    def dense_candidates(self, qvector, eligible, filters):
         groups = self.qdrant.query_points_groups(
             collection_name=self.collection,
             query=qvector.tolist(),
@@ -154,12 +185,10 @@ class SearchEngine:
         np.maximum.at(dense, self.parents, window_scores)
         dense[~eligible] = -np.inf
         dense_order = sorted(qdrant_scores, key=lambda i: (-qdrant_scores[i], i))
-        fusion = np.zeros(len(self.corpus), dtype=np.float64)
-        for indices in [order(lexical)[: min(100, int(eligible.sum()))], dense_order]:
-            indices = np.asarray(indices, dtype=np.int64)
-            fusion[indices] += 1 / (self.config["rrf_k"] + np.arange(1, len(indices) + 1))
-        fusion[~eligible] = -np.inf
-        timings["qdrant"] = time.perf_counter() - clock
+        return dense, dense_order, qdrant_scores
+
+    def rerank(self, question, qvector, eligible, scores, dense_order, timings):
+        lexical, dense, fusion = scores
         candidates = order(fusion)[: min(100, int(eligible.sum()))]
         ce = np.zeros(len(candidates), dtype=np.float32)
         ltr = np.zeros(len(candidates), dtype=np.float32)
@@ -197,6 +226,11 @@ class SearchEngine:
             else:
                 depth = min(self.config["ce_depth"], len(candidates))
                 ranked = np.concatenate([candidates[:depth][order(ce[:depth])], candidates[depth:]])
+        return candidates, ranked, ce, ltr
+
+    def trace_candidates(self, candidates, eligible, scores, qdrant_scores, dense_order, ce, ltr):
+        lexical, dense, fusion = scores
+        mode = self.config["mode"]
         stage_candidates = {
             "bm25": [
                 {"passage_id": self.corpus[int(i)]["id"], "score": float(lexical[i])}
@@ -230,6 +264,11 @@ class SearchEngine:
                     "ltr": float(ltr[pos]) if mode == "ltr" else None,
                 }
             )
+        return stage_candidates, traces
+
+    def assemble_response(
+        self, qvector, ranked, limit, traces, filters, timings, started, stage_candidates
+    ):
         selected_windows = best_windows(
             qvector, self.vectors, self.windows, ranked[:limit], count=1
         )
