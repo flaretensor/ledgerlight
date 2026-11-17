@@ -52,3 +52,103 @@ def test_failure_diagnostics_omit_exception_and_request_content(caplog, error):
     assert private not in caplog.text
     assert "198.18.99.2" not in caplog.text and "secret.invalid" not in caplog.text
     assert record.exc_info is None
+
+
+@pytest.mark.parametrize("upstream", ["retrieval", "generation"])
+def test_stream_upstream_failure_emits_error_and_releases_slot(monkeypatch, upstream):
+    import asyncio
+
+    from ledgerlight import gateway
+    from ledgerlight.admission import Admission
+    from ledgerlight.api_models import AskRequest
+
+    real_client = httpx.AsyncClient
+    item = {
+        "passage_id": "p0",
+        "windows": ["Synthetic evidence"],
+        "sources": [],
+        "text": "Synthetic evidence",
+    }
+
+    def response(request):
+        if request.url.path == "/search":
+            if upstream == "retrieval":
+                raise httpx.ConnectError("private request 198.18.99.2", request=request)
+            return httpx.Response(200, json={"results": [item], "versions": {}, "latencies": {}})
+        return httpx.Response(503)
+
+    monkeypatch.setattr(gateway, "ADMISSION", Admission())
+    monkeypatch.setattr(gateway, "client_address", lambda request: "synthetic")
+    monkeypatch.setattr(gateway, "pack_stream_prompt", lambda *args: ([], 0, False))
+    monkeypatch.setattr(
+        gateway.httpx,
+        "AsyncClient",
+        lambda **kwargs: real_client(transport=httpx.MockTransport(response), **kwargs),
+    )
+
+    class Connected:
+        async def is_disconnected(self):
+            return False
+
+    async def run():
+        response = await gateway.ask_stream(Connected(), AskRequest(question="Synthetic failure"))
+        assert gateway.ADMISSION.snapshot()["active"]
+        return [part async for part in response.body_iterator]
+
+    events = asyncio.run(run())
+    assert any('event: error\ndata: {"code": "error"}' in part for part in events)
+    assert not any("event: final" in part for part in events)
+    assert gateway.ADMISSION.snapshot() == {"active": False, "waiting": 0}
+
+
+def test_active_stream_disconnect_releases_slot_and_closes_upstream(monkeypatch):
+    import asyncio
+
+    from ledgerlight import gateway
+    from ledgerlight.admission import Admission
+    from ledgerlight.api_models import AskRequest
+
+    real_client = httpx.AsyncClient
+    item = {
+        "passage_id": "p0",
+        "windows": ["Synthetic evidence"],
+        "sources": [],
+        "text": "Synthetic evidence",
+    }
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200, json={"results": [item], "versions": {}, "latencies": {}}
+        )
+    )
+    monkeypatch.setattr(gateway, "ADMISSION", Admission())
+    monkeypatch.setattr(gateway, "client_address", lambda request: "synthetic")
+    monkeypatch.setattr(
+        gateway.httpx, "AsyncClient", lambda **kwargs: real_client(transport=transport, **kwargs)
+    )
+    closed = []
+
+    async def completion(*args, **kwargs):
+        try:
+            yield "content", "Synthetic"
+            await asyncio.sleep(60)
+        finally:
+            closed.append(True)
+
+    monkeypatch.setattr(gateway, "stream_completion", completion)
+
+    class Disconnected:
+        async def is_disconnected(self):
+            return True
+
+    async def run():
+        response = await gateway.ask_stream(
+            Disconnected(), AskRequest(question="Synthetic disconnect")
+        )
+        assert gateway.ADMISSION.snapshot()["active"]
+        with pytest.raises(asyncio.CancelledError):
+            async for _ in response.body_iterator:
+                pass
+
+    asyncio.run(run())
+    assert closed == [True]
+    assert gateway.ADMISSION.snapshot() == {"active": False, "waiting": 0}
