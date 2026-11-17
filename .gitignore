@@ -9,9 +9,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 data/*
-!data/*.dvc
 models/*
-!models/*.dvc
 indices/
 mlruns/
 logs/
