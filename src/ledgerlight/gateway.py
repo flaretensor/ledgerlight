@@ -1,10 +1,13 @@
 import asyncio
 import json
+import logging
 import os
 import threading
 import time
+import traceback
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -41,6 +44,13 @@ SYSTEM = (
     "If the excerpts do not support the question, respond exactly: not found in sources. "
     "Keep the answer concise. Preserve financial units and years."
 )
+
+
+def log_failure(exc):
+    frame = traceback.extract_tb(exc.__traceback__)[-1]
+    logging.getLogger(__name__).error(
+        "%s %s:%s %s", type(exc).__name__, Path(frame.filename).name, frame.lineno, frame.name
+    )
 
 
 @asynccontextmanager
@@ -321,7 +331,8 @@ async def ask_stream(request: Request, payload: AskRequest):
         except (TimeoutError, httpx.TimeoutException):
             outcome = "timeout"
             yield sse("error", {"code": "timeout"})
-        except Exception:
+        except Exception as exc:
+            log_failure(exc)
             ERRORS.labels("gateway", "stream").inc()
             yield sse("error", {"code": "error"})
         finally:
@@ -402,6 +413,7 @@ def ask(request: AskRequest, incoming: Request):
             finally:
                 timer.cancel()
     except Exception as exc:
+        log_failure(exc)
         outcome = (
             "timeout"
             if isinstance(exc, (TimeoutError, httpx.TimeoutException))
