@@ -40,17 +40,10 @@ def normalize(text):
     return " ".join(text.split()).casefold()
 
 
-def validate():
-    import hashlib
-    import warnings
-    from collections import Counter, defaultdict
-
+def validate_input_schema(rows):
     import pandas as pd
     import pandera.pandas as pa
 
-    from ledgerlight.common import read_json, read_jsonl, write_jsonl
-
-    rows = read_jsonl("data/raw/FinRank.jsonl")
     schema = pa.DataFrameSchema(
         {
             "id": pa.Column(str, unique=True),
@@ -59,6 +52,11 @@ def validate():
         }
     )
     schema.validate(pd.DataFrame(rows), lazy=True)
+
+
+def build_corpus(rows):
+    import hashlib
+
     lookup, corpus, queries, labels = {}, [], [], {}
     sha_mismatches = 0
     positives_by_text = set()
@@ -93,6 +91,13 @@ def validate():
                     positives_by_text.add(normalized)
                 else:
                     negative_texts.append(normalized)
+    return corpus, queries, labels, sha_mismatches, positives_by_text, negative_texts
+
+
+def validate_output_schema(corpus, queries):
+    import pandas as pd
+    import pandera.pandas as pa
+
     pa.DataFrameSchema(
         {
             "id": pa.Column(str, unique=True),
@@ -108,7 +113,14 @@ def validate():
         },
         strict=True,
     ).validate(pd.DataFrame(queries), lazy=True)
-    splits = read_json("data/raw/splits.json")["random"]
+
+
+def build_audit(
+    rows, corpus, queries, labels, splits, sha_mismatches, positives_by_text, negative_texts
+):
+    import warnings
+    from collections import Counter, defaultdict
+
     sets = [set(ids) for ids in splits.values()]
     if set.union(*sets) != set(labels) or sum(map(len, sets)) != len(labels):
         raise ValueError("Invalid official split coverage/disjointness")
@@ -141,7 +153,10 @@ def validate():
         "source_urls": False,
         "query_input_fields": ["id", "question"],
     }
-    aliases = read_json("config/company_aliases.json")
+    return audit
+
+
+def validate_aliases(corpus, aliases):
     tickers = {source["ticker"] for passage in corpus for source in passage["sources"]}
     if set(aliases) != tickers or any(not names for names in aliases.values()):
         raise ValueError("Company alias keys must exactly cover the original corpus tickers")
@@ -153,6 +168,20 @@ def validate():
                 for passage in corpus
             ):
                 raise ValueError(f"Company alias not found in ticker passages: {ticker}")
+
+
+def validate():
+    from ledgerlight.common import read_json, read_jsonl, write_jsonl
+
+    rows = read_jsonl("data/raw/FinRank.jsonl")
+    validate_input_schema(rows)
+    corpus, queries, labels, sha_mismatches, positives_by_text, negative_texts = build_corpus(rows)
+    validate_output_schema(corpus, queries)
+    splits = read_json("data/raw/splits.json")["random"]
+    audit = build_audit(
+        rows, corpus, queries, labels, splits, sha_mismatches, positives_by_text, negative_texts
+    )
+    validate_aliases(corpus, read_json("config/company_aliases.json"))
     write_jsonl("data/processed/corpus.jsonl", corpus)
     write_jsonl("data/processed/queries.jsonl", queries)
     write_json("data/processed/labels.json", labels)
