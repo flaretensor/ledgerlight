@@ -23,7 +23,7 @@ Retrieval models behind [Ledgerlight](https://github.com/flaretensor/ledgerlight
 
 ## Results
 
-On the 119 test queries of FinRank, the full pipeline reaches nDCG@10 of 38.58%, against 22.79% for BM25 (+15.79 points, 95% CI 10.27–21.44). Relevance labels are incomplete, and the test queries share a passage corpus with the training queries, so the result says nothing about unseen documents. Answer quality was not evaluated.
+On the 119 held-out test questions of FinRank, the full pipeline reaches nDCG@10 of 38.58%, against 22.79% for BM25 (+15.79 points, 95% CI 10.27–21.44). The test questions are new and are searched against the same passages as in training. The metric measures retrieval; the generated answers were not scored.
 
 ## Use
 

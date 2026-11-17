@@ -1,23 +1,23 @@
 # Ledgerlight
 
-Ledgerlight answers questions about the financial reports of 22 U.S. companies and cites the passages it used. If the retrieved passages don't support an answer, the model is told to reply `not found in sources`. It runs locally on a 4 GB GPU.
+Ledgerlight answers questions about the financial reports of 22 U.S. companies and cites the passages it used. If the passages don't support an answer, or the answer cites none of them, no answer is shown.
 
 **Demo:** <https://ledgerlight.flaretensor.uk> (online only while the stack is running)
 
-**Result:** on held-out TEST questions, the full ranking pipeline reaches nDCG@10 of 38.58%, against 22.79% for BM25 (+15.79 points, 95% CI 10.27 to 21.44). For how to read these numbers, see [How to read the results](#how-to-read-the-results).
+**Result:** on held-out TEST questions, the full ranking pipeline reaches nDCG@10 of 38.58%, against 22.79% for BM25 (+15.79 points, 95% CI 10.27 to 21.44; see [How to read the results](#how-to-read-the-results)).
 
 ## Stack
 
 - **Retrieval and models:** `bm25s`, Qdrant, PyTorch, CatBoost, llama.cpp, `ranx`, Optuna.
-- **Serving:** FastAPI, Streamlit, Triton Inference Server with ONNX Runtime (PyTorch and OpenVINO as alternatives), Docker Compose.
+- **Serving:** FastAPI, Streamlit, Triton Inference Server with ONNX Runtime by default, PyTorch and OpenVINO backends, Docker Compose.
 - **MLOps:** MLflow with PostgreSQL, a DVC pipeline definition, Prometheus, Grafana, Locust.
 - **Tooling:** Python 3.12, `uv`, Ruff, pytest, GitHub Actions, Cloudflare Tunnel.
 
 ## Data
 
-The passages come from [FinRank](https://github.com/datanxt/FinRank/tree/916dc27e77b90e294ea1b3a2cc5b0abcf07392d1) ([paper](https://arxiv.org/abs/2608.07400)): 5,230 curated excerpts from the 10-K and 10-Q filings of 22 energy, healthcare and automotive companies. The dataset has no links to the original filings. Each passage carries one or more source records with ticker, form type, filing year and page.
+The passages come from [FinRank](https://github.com/datanxt/FinRank/tree/916dc27e77b90e294ea1b3a2cc5b0abcf07392d1) ([paper](https://arxiv.org/abs/2608.07400)): 5,230 curated excerpts from the 10-K and 10-Q filings of 22 energy, healthcare and automotive companies. Each passage carries one or more source records with ticker, form type, filing year and page.
 
-FinRank also has 1,185 human-written questions with passage-level relevance labels. Ledgerlight uses its split: 948 TRAIN, 118 DEV and 119 TEST questions.
+FinRank also has 1,185 questions written by trained annotators, with passage-level relevance labels. Ledgerlight uses the dataset's own random split: 948 TRAIN, 118 DEV and 119 TEST questions.
 
 ## Passages and windows
 
@@ -46,8 +46,8 @@ A passage's best window is the window whose embedding is closest to the question
 ## Evaluation
 
 - TRAIN is split into 712 questions for the neural models and 236 for the ranker, so the ranker learns from scores the neural models didn't train on.
-- DEV picks every setting: 6 Optuna trials for the encoder, 6 for the cross-encoder and 50 for CatBoost.
-- TEST was scored once, after the selection was frozen. The evaluation command refuses to run a second time.
+- DEV picks every setting: 6 Optuna trials for the encoder and 6 for the cross-encoder (each trial fine-tunes a model on the GPU), and 50 for CatBoost.
+- TEST was scored once, after every choice was frozen on DEV. The evaluation script refuses to score it again.
 - Metrics are averaged over questions. Confidence intervals come from a paired bootstrap over questions (10,000 resamples, seed 42).
 
 ## Results
@@ -75,7 +75,7 @@ Paired differences in TEST nDCG@10, in points, with 95% confidence intervals:
 | Fine-tuned vs. pretrained cross-encoder | +6.62 | 3.06 to 10.46 |
 | Fine-tuned vs. pretrained BGE, dense only | +9.00 | 5.25 to 12.93 |
 
-Only the first comparison was planned before TEST was scored. The others, and everything below, were computed afterward from the saved rankings and are descriptive.
+Only the comparison with BM25 was planned before TEST was scored. The other comparisons and the analyses below were computed afterward from the saved rankings.
 
 - **DEV vs. TEST.** The selected pipeline scores 43.67% on DEV and 38.58% on TEST. DEV was used for selection, so TEST is the figure to rely on.
 - **Candidate coverage.** Recall@100 of 73.32% caps what any reranker can reach. For 22 of the 119 TEST questions, no labeled passage is among the 100 candidates. For 27, one is among them but not in the top five. For 70, at least one is in the five passages sent to the LLM.
@@ -99,7 +99,7 @@ Reference device: Intel Core i5-12500H, 64 GB RAM, NVIDIA RTX 3050 Laptop GPU wi
 | Triton Inference Server, ONNX Runtime | 0.911 | 2,424 | default |
 | PyTorch | 0.944 | 3,130 | available |
 | OpenVINO on CPU | 5.359 | 1,461 | available; used by the CPU mode |
-| ONNX Runtime CUDA, in process | not completed | 2,626 | excluded |
+| ONNX Runtime CUDA, in process | not completed | 2,626 | excluded: ran out of GPU memory |
 
 Every backend reproduces the PyTorch scores within 1e-4 and the DEV nDCG@10 within 0.005. In-process ONNX Runtime ran out of CUDA memory partway through the 118-question pass while sharing the GPU with the LLM, so it is excluded. Triton with the OpenVINO backend also runs but is not the default.
 
@@ -118,7 +118,7 @@ Requirements: Python 3.12, uv and Docker Compose. GPU serving needs an NVIDIA GP
 ```sh
 source scripts/env.sh
 uv sync --frozen
-cp .env.example .env    # then set local database and Grafana passwords; keep .env private
+cp .env.example .env    # then set local database and Grafana passwords
 docker compose --profile triton pull --ignore-buildable
 ```
 
@@ -127,7 +127,7 @@ docker compose --profile triton pull --ignore-buildable
 The trained weights are published on [Hugging Face](https://huggingface.co/flaretensor/ledgerlight-models) as a model bundle of 25 files (674 MB): the fine-tuned encoder, cross-encoder and ranker with tokenizers and configs, their ONNX exports, `SHA256SUMS` and `provenance.json`. The bootstrap command verifies the checksums, downloads the pinned FinRank file and the pinned Qwen GGUF, and rebuilds the windows, the BM25 and Qdrant indexes and the registry:
 
 ```sh
-python scripts/release_models.py bootstrap --repo flaretensor/ledgerlight-models --revision e6a5af4b81d1928439c56f985ddd761bca9d0e4d
+python scripts/release_models.py bootstrap --repo flaretensor/ledgerlight-models --revision ee362db3c9571e4bbb7b448f0146f29c06edba3c
 # or, from a local copy of the bundle:
 python scripts/release_models.py bootstrap --bundle PATH
 ```
@@ -138,7 +138,7 @@ On the reference device, the bootstrap took 14 to 16 minutes with downloads alre
 
 ```sh
 python scripts/site.py start          # default backend, LLM on the GPU
-python scripts/site.py start --cpu    # no GPU memory used
+python scripts/site.py start --cpu    # CPU only, no GPU needed
 python scripts/site.py status
 python scripts/site.py stop
 ```
@@ -154,11 +154,11 @@ bash scripts/train.sh                  # resumable training, DEV selection, regi
 bash scripts/ci.sh                     # lint, format, tests, leakage checks, synthetic CPU pipeline
 ```
 
-Training took about two and a half hours on the reference device. `dvc.yaml` also declares the stages from data ingestion to DEV evaluation as a DVC pipeline. No DVC remote is configured.
+Training took about two and a half hours on the reference device. `dvc.yaml` also declares the stages from data ingestion to DEV evaluation as a DVC pipeline.
 
-The published weights come from one frozen run. The code has been edited since, so retraining starts a new run and will not reproduce the published weights exactly.
+Training uses fixed seeds. GPU training is not bit-for-bit deterministic, so a new run can differ slightly from the published weights.
 
-GitHub Actions runs `scripts/ci.sh` on every push. It needs neither a GPU nor Docker. `scripts/checks/` holds the scripts behind the serving measurements, the larger-encoder comparison and the clean-clone bootstrap check.
+GitHub Actions runs `scripts/ci.sh` on every push (no GPU or Docker needed). `scripts/checks/` holds the scripts behind the serving measurements and the larger-encoder comparison.
 
 ## License
 

@@ -1,7 +1,7 @@
 [project]
 name = "ledgerlight"
 version = "0.1.0"
-description = "Cited answers to questions about SEC filings, running locally"
+description = "Local question answering over SEC filings, with cited sources"
 license = "Apache-2.0"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

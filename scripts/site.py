@@ -303,7 +303,6 @@ def start(args):
         ]
         if processes:
             raise RuntimeError("CPU configuration still owns GPU memory")
-        print("PASS: stack GPU memory is 0 MiB")
 
 
 def stop():
@@ -403,7 +402,7 @@ def status():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Start and stop Ledgerlight by hand; nothing runs in the background. Example: python scripts/site.py start --cpu"
+        description="Start, stop and check Ledgerlight. Example: python scripts/site.py start --cpu"
     )
     parser.add_argument("action", choices=["start", "stop", "status"])
     parser.add_argument("--search", choices=["torch", "ort", "openvino"])
@@ -416,7 +415,7 @@ def main():
     if subprocess.run(
         ["docker", "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300
     ).returncode:
-        print("Docker is not running: sudo systemctl start docker")
+        print("Docker is not running.")
         return 1
     try:
         {"start": lambda: start(args), "stop": stop, "status": status}[args.action]()

@@ -115,9 +115,8 @@ def test_ui_copy_sources_and_detail_tables(ui):
     assert len(app.caption[0].proto.help.split("\n\n")) == 3
     assert app.caption[0].proto.help.split("\n\n")[1] == (
         "The passages come from FinRank, a public retrieval dataset. They are excerpts of the "
-        "reports, so some questions can't be answered here. The dataset has no links to the "
-        "original filings, so each source shows the company, report type, filing year and "
-        "page. Text appears as stored, including leftover markup."
+        "reports, so some questions can't be answered here. Each source shows the company, "
+        "report type, filing year and page. Text appears as stored, including leftover markup."
     )
     assert app.selectbox[2].proto.help == (
         "The year the report was filed. A 2024 annual report is usually filed in early 2025, "

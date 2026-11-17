@@ -40,12 +40,10 @@ HEADER_HELP = (
     "that 22 U.S. energy, healthcare and automotive companies filed with the U.S. "
     "Securities and Exchange Commission (SEC).\n\n"
     "The passages come from FinRank, a public retrieval dataset. They are excerpts of the "
-    "reports, so some questions can't be answered here. The dataset has no links to the "
-    "original filings, so each source shows the company, report type, filing year and "
-    "page. Text appears as stored, including leftover markup.\n\n"
+    "reports, so some questions can't be answered here. Each source shows the company, "
+    "report type, filing year and page. Text appears as stored, including leftover markup.\n\n"
     "A small local model (Qwen3.5-2B) writes each answer from the top-ranked passages. "
-    "It can make mistakes, so check the sources. The Search details tab shows how the "
-    "passages were found."
+    "The Search details tab shows how the passages were found."
 )
 SOURCE_NAVIGATION = """<script>
 if (!window.ledgerlightSourceNavigation) {
@@ -270,7 +268,7 @@ def question_form(health):
             height=80,
             max_chars=500,
             key="question_input",
-            placeholder="Ask a question about these companies' reports, in English",
+            placeholder="Ask a question about these companies' reports (English only)",
         )
         company_col, form_col, year_col, submit_col = st.columns(
             [2.4, 2.2, 1.5, 0.7], vertical_alignment="bottom", gap="small"
