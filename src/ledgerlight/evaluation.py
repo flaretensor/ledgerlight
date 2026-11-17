@@ -11,7 +11,7 @@ METRICS = ["recall@10", "recall@20", "recall@100", "ndcg@10", "mrr"]
 
 
 def evaluate(rankings, labels):
-    from ledgerlight.test_access import guard_queries
+    from ledgerlight.split_guard import guard_queries
 
     guard_queries(rankings)
 

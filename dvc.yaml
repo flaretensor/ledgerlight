@@ -48,7 +48,7 @@ stages:
     - src/ledgerlight/retrieval.py
     - src/ledgerlight/cross_encoder.py
     - src/ledgerlight/pairs.py
-    - src/ledgerlight/test_access.py
+    - src/ledgerlight/split_guard.py
     params:
     - retrieval
     - cross_encoder
@@ -98,7 +98,7 @@ stages:
     - models/ltr
     - src/ledgerlight/final_evaluation.py
     - src/ledgerlight/evaluation.py
-    - src/ledgerlight/test_access.py
+    - src/ledgerlight/split_guard.py
     - src/ledgerlight/common.py
     outs:
     - data/evaluation:

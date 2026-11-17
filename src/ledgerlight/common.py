@@ -32,7 +32,7 @@ def read_jsonl(value):
     if value == "data/processed/queries.jsonl":
         import re
 
-        from ledgerlight.test_access import test_allowed
+        from ledgerlight.split_guard import held_out_allowed
 
         splits = read_json("data/processed/splits.json")
         allowed = set(splits["train"]) | set(splits["dev"])
@@ -44,7 +44,7 @@ def read_jsonl(value):
                 qid = json.loads(re.match(rb'\s*\{\s*"id"\s*:\s*("[^"]+")', line)[1])
                 rows.append(
                     json.loads(line)
-                    if qid in allowed or test_allowed()
+                    if qid in allowed or held_out_allowed()
                     else {"id": qid, "question": ""}
                 )
         return rows

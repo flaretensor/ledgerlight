@@ -41,9 +41,9 @@ def load_model(kind="encoder", model_path=None, device="cuda"):
 
 def active_queries(queries):
     from ledgerlight.common import read_json
-    from ledgerlight.test_access import test_allowed
+    from ledgerlight.split_guard import held_out_allowed
 
-    if test_allowed():
+    if held_out_allowed():
         return list(enumerate(queries))
     splits = read_json("data/processed/splits.json")
     allowed = set(splits["train"]) | set(splits["dev"])

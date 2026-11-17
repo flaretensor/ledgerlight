@@ -6,7 +6,7 @@ from ledgerlight.common import path, read_json
 _ALLOWED = ContextVar("held_out_metrics_allowed", default=False)
 
 
-def test_allowed():
+def held_out_allowed():
     return _ALLOWED.get()
 
 

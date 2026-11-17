@@ -181,7 +181,7 @@ def test_test_permission(monkeypatch, tmp_path):
     from ledgerlight import common
     from ledgerlight.evaluation import evaluate
     from ledgerlight.final_evaluation import evaluate_final
-    from ledgerlight.test_access import allow_test
+    from ledgerlight.split_guard import allow_test
 
     monkeypatch.setattr(common, "ROOT", tmp_path)
     target = tmp_path / "data/processed/splits.json"

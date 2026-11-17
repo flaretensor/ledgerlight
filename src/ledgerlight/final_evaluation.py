@@ -246,7 +246,7 @@ def _evaluate_final():
 
 
 def evaluate_final(*, allow_test=False):
-    from ledgerlight.test_access import allow_test as test_permission
+    from ledgerlight.split_guard import allow_test as test_permission
 
     with test_permission(allow_test):
         return _evaluate_final()

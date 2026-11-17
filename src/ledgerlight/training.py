@@ -393,7 +393,7 @@ def score_ce(model, ids, context):
 
     from ledgerlight.common import digest
     from ledgerlight.retrieval import cross_scores, fuse, order
-    from ledgerlight.test_access import guard_queries
+    from ledgerlight.split_guard import guard_queries
 
     guard_queries(ids)
     model_hash = hashlib.sha256()
