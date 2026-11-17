@@ -171,6 +171,109 @@ def rollback():
     return result
 
 
+NEURAL_REQUIREMENTS = ("sentence-transformers==5.2.3", "torch==2.8.0")
+RANKER_REQUIREMENTS = ("catboost>=1.2.8,<1.3",)
+PIPELINE_REQUIREMENTS = (
+    "sentence-transformers==5.2.3",
+    "torch==2.8.0",
+    "catboost",
+    "bm25s",
+    "qdrant-client",
+    "numpy",
+    "pyyaml",
+    "python-dotenv",
+    "mlflow",
+)
+
+
+def register_model(run_name, name, adapter, artifacts, requirements, metric=None):
+    with mlflow.start_run(run_name=run_name):
+        if metric is not None:
+            mlflow.log_metric("dev_ndcg10", metric)
+        info = mlflow.pyfunc.log_model(
+            name="model",
+            python_model=adapter(),
+            artifacts=artifacts,
+            registered_model_name=namespace() + "-" + name,
+            code_paths=["src/ledgerlight"],
+            pip_requirements=list(requirements),
+        )
+    return str(info.registered_model_version)
+
+
+def register_components(sources, run_prefix):
+    c = client()
+    components = {}
+    for key, adapter in [("encoder", EncoderAdapter), ("cross-encoder", CrossEncoderAdapter)]:
+        versions = [
+            register_model(
+                f"{run_prefix}-{key}-{kind}",
+                key,
+                adapter,
+                {"weights": str(source)},
+                NEURAL_REQUIREMENTS,
+            )
+            for kind, source in zip(["base", "trained"], sources[key], strict=True)
+        ]
+        components[key] = versions
+        c.set_registered_model_alias(namespace() + "-" + key, "champion", versions[-1])
+    components["ranker"] = register_model(
+        run_prefix + "-ranker",
+        "ranker",
+        RankerAdapter,
+        {"weights": str(sources["ranker"])},
+        RANKER_REQUIREMENTS,
+    )
+    c.set_registered_model_alias(namespace() + "-ranker", "champion", components["ranker"])
+    return components
+
+
+def pipeline_manifest(configuration, components):
+    return {
+        **configuration,
+        "components": {
+            "encoder": components["encoder"][int(configuration["index"] == "trained")],
+            "cross_encoder": components["cross-encoder"][
+                int(configuration["cross_encoder_path"] is not None)
+            ]
+            if configuration["mode"] in {"ce", "ltr"}
+            else None,
+            "ranker": components["ranker"] if configuration["mode"] == "ltr" else None,
+        },
+    }
+
+
+def register_pipelines(freeze, components, run_prefix, log_metrics=False):
+    c = client()
+    versions = {}
+    for method, configuration in freeze["configurations"].items():
+        manifest_path = f"data/registry/{method}/manifest.json"
+        write_json(manifest_path, pipeline_manifest(configuration, components))
+        metric = freeze["dev"][method]["ndcg@10"]
+        version = register_model(
+            f"{run_prefix}-pipeline-{method}",
+            "pipeline",
+            PipelineAdapter,
+            {"manifest": str(path(manifest_path))},
+            PIPELINE_REQUIREMENTS,
+            metric=metric if log_metrics else None,
+        )
+        c.set_model_version_tag(PIPELINE_NAME, version, "dev_ndcg10", str(metric))
+        c.set_model_version_tag(PIPELINE_NAME, version, "method", method)
+        versions[method] = version
+    c.set_registered_model_alias(PIPELINE_NAME, "champion", versions["BM25"])
+    promote(versions[freeze["selected"]])
+    write_json(
+        "data/registry/versions.json",
+        {
+            "pipelines": versions,
+            "components": components,
+            "selected": versions[freeze["selected"]],
+        },
+    )
+    return versions
+
+
 def register_all():
     from huggingface_hub import snapshot_download
 
@@ -178,96 +281,21 @@ def register_all():
 
     mlflow.set_tracking_uri("http://127.0.0.1:5000")
     mlflow.set_experiment(namespace())
-    c = client()
-    components = {}
-    for key, config_key, selected_file, adapter in [
-        ("encoder", "encoder", "encoder_selected.json", EncoderAdapter),
-        ("cross-encoder", "cross_encoder", "ce_selected.json", CrossEncoderAdapter),
+    sources = {}
+    for key, config_key, selected_file in [
+        ("encoder", "encoder", "encoder_selected.json"),
+        ("cross-encoder", "cross_encoder", "ce_selected.json"),
     ]:
         cfg = params()[config_key]
         selected = read_json("data/training/" + selected_file)
         snapshot = snapshot_download(cfg["name"], revision=cfg["revision"], local_files_only=True)
         materialized = path(f".cache/registry-input/{key}/{cfg['revision']}")
         shutil.copytree(snapshot, materialized, symlinks=False, dirs_exist_ok=True)
-        weights = [
-            str(materialized),
-            str(path(selected["path"])),
-        ]
-        components[key] = []
-        for kind, source in zip(["base", "trained"], weights):
-            with mlflow.start_run(run_name=f"register-{key}-{kind}"):
-                info = mlflow.pyfunc.log_model(
-                    name="model",
-                    python_model=adapter(),
-                    artifacts={"weights": source},
-                    registered_model_name=f"{namespace()}-{key}",
-                    code_paths=["src/ledgerlight"],
-                    pip_requirements=["sentence-transformers==5.2.3", "torch==2.8.0"],
-                )
-            components[key].append(str(info.registered_model_version))
-        c.set_registered_model_alias(f"{namespace()}-{key}", "champion", components[key][-1])
-    selected_ltr = read_json("data/training/ltr_selected.json")
-    with mlflow.start_run(run_name="register-ranker"):
-        info = mlflow.pyfunc.log_model(
-            name="model",
-            python_model=RankerAdapter(),
-            artifacts={"weights": str(path(selected_ltr["path"]))},
-            registered_model_name=namespace() + "-ranker",
-            code_paths=["src/ledgerlight"],
-            pip_requirements=["catboost>=1.2.8,<1.3"],
-        )
-    components["ranker"] = str(info.registered_model_version)
-    c.set_registered_model_alias(namespace() + "-ranker", "champion", components["ranker"])
-    freeze = read_json("data/evaluation/freeze.json")
-    versions = {}
-    for method, configuration in freeze["configurations"].items():
-        manifest_path = f"data/registry/{method}/manifest.json"
-        write_json(
-            manifest_path,
-            {
-                **configuration,
-                "components": {
-                    "encoder": components["encoder"][int(configuration["index"] == "trained")],
-                    "cross_encoder": components["cross-encoder"][
-                        int(configuration["cross_encoder_path"] is not None)
-                    ]
-                    if configuration["mode"] in {"ce", "ltr"}
-                    else None,
-                    "ranker": components["ranker"] if configuration["mode"] == "ltr" else None,
-                },
-            },
-        )
-        with mlflow.start_run(run_name=f"register-pipeline-{method}"):
-            mlflow.log_metric("dev_ndcg10", freeze["dev"][method]["ndcg@10"])
-            info = mlflow.pyfunc.log_model(
-                name="model",
-                python_model=PipelineAdapter(),
-                artifacts={"manifest": str(path(manifest_path))},
-                registered_model_name=PIPELINE_NAME,
-                code_paths=["src/ledgerlight"],
-                pip_requirements=[
-                    "sentence-transformers==5.2.3",
-                    "torch==2.8.0",
-                    "catboost",
-                    "bm25s",
-                    "qdrant-client",
-                    "numpy",
-                    "pyyaml",
-                    "python-dotenv",
-                    "mlflow",
-                ],
-            )
-        version = str(info.registered_model_version)
-        c.set_model_version_tag(
-            PIPELINE_NAME, version, "dev_ndcg10", str(freeze["dev"][method]["ndcg@10"])
-        )
-        c.set_model_version_tag(PIPELINE_NAME, version, "method", method)
-        versions[method] = version
-    c.set_registered_model_alias(PIPELINE_NAME, "champion", versions["BM25"])
-    promote(versions[freeze["selected"]])
-    write_json(
-        "data/registry/versions.json",
-        {"pipelines": versions, "components": components, "selected": versions[freeze["selected"]]},
+        sources[key] = [materialized, path(selected["path"])]
+    sources["ranker"] = path(read_json("data/training/ltr_selected.json")["path"])
+    components = register_components(sources, "register")
+    register_pipelines(
+        read_json("data/evaluation/freeze.json"), components, "register", log_metrics=True
     )
 
 

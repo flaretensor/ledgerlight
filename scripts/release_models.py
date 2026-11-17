@@ -255,110 +255,21 @@ def base_snapshots(cache_root, reused):
 def register_fresh(bundle, snapshots):
     import mlflow
 
-    from ledgerlight.registry import (
-        CrossEncoderAdapter,
-        EncoderAdapter,
-        PipelineAdapter,
-        RankerAdapter,
-        client,
-        namespace,
-        promote,
-    )
+    from ledgerlight.registry import client, namespace, register_components, register_pipelines
 
-    c = client()
-    if list(c.search_registered_models()):
+    if list(client().search_registered_models()):
         raise ValueError("Bootstrap requires an empty isolated registry")
     mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000"))
     mlflow.set_experiment(namespace())
     provenance = json.loads((bundle / "provenance.json").read_text())
     configurations = json.loads((bundle / "pipelines.json").read_text())
-    components = {}
-    for role, name, adapter in [
-        ("encoder", "encoder", EncoderAdapter),
-        ("cross_encoder", "cross-encoder", CrossEncoderAdapter),
-    ]:
-        versions = []
-        for kind, source in [
-            ("base", snapshots[role]),
-            ("trained", path(provenance["selected_paths"][role + "_path"])),
-        ]:
-            with mlflow.start_run(run_name="bootstrap-" + name + "-" + kind):
-                info = mlflow.pyfunc.log_model(
-                    name="model",
-                    python_model=adapter(),
-                    artifacts={"weights": str(source)},
-                    registered_model_name=namespace() + "-" + name,
-                    code_paths=["src/ledgerlight"],
-                    pip_requirements=["sentence-transformers==5.2.3", "torch==2.8.0"],
-                )
-            versions.append(str(info.registered_model_version))
-        components[name] = versions
-        c.set_registered_model_alias(namespace() + "-" + name, "champion", versions[-1])
-    with mlflow.start_run(run_name="bootstrap-ranker"):
-        info = mlflow.pyfunc.log_model(
-            name="model",
-            python_model=RankerAdapter(),
-            artifacts={"weights": str(path(provenance["selected_paths"]["ltr_path"]))},
-            registered_model_name=namespace() + "-ranker",
-            code_paths=["src/ledgerlight"],
-            pip_requirements=["catboost>=1.2.8,<1.3"],
-        )
-    components["ranker"] = str(info.registered_model_version)
-    c.set_registered_model_alias(namespace() + "-ranker", "champion", components["ranker"])
-    versions = {}
-    for method, config in configurations["configurations"].items():
-        selected = {
-            **config,
-            "components": {
-                "encoder": components["encoder"][int(config["index"] == "trained")],
-                "cross_encoder": components["cross-encoder"][
-                    int(config["cross_encoder_path"] is not None)
-                ]
-                if config["mode"] in {"ce", "ltr"}
-                else None,
-                "ranker": components["ranker"] if config["mode"] == "ltr" else None,
-            },
-        }
-        location = "data/registry/" + method + "/manifest.json"
-        write_json(location, selected)
-        with mlflow.start_run(run_name="bootstrap-pipeline-" + method):
-            info = mlflow.pyfunc.log_model(
-                name="model",
-                python_model=PipelineAdapter(),
-                artifacts={"manifest": str(path(location))},
-                registered_model_name=namespace() + "-pipeline",
-                code_paths=["src/ledgerlight"],
-                pip_requirements=[
-                    "sentence-transformers==5.2.3",
-                    "torch==2.8.0",
-                    "catboost",
-                    "bm25s",
-                    "qdrant-client",
-                    "numpy",
-                    "pyyaml",
-                    "python-dotenv",
-                    "mlflow",
-                ],
-            )
-        version = str(info.registered_model_version)
-        versions[method] = version
-        c.set_model_version_tag(
-            namespace() + "-pipeline",
-            version,
-            "dev_ndcg10",
-            str(configurations["dev"][method]["ndcg@10"]),
-        )
-        c.set_model_version_tag(namespace() + "-pipeline", version, "method", method)
-    c.set_registered_model_alias(namespace() + "-pipeline", "champion", versions["BM25"])
-    promote(versions[configurations["selected"]])
-    write_json(
-        "data/registry/versions.json",
-        {
-            "pipelines": versions,
-            "components": components,
-            "selected": versions[configurations["selected"]],
-        },
-    )
+    sources = {
+        name: [snapshots[role], path(provenance["selected_paths"][role + "_path"])]
+        for role, name in [("encoder", "encoder"), ("cross_encoder", "cross-encoder")]
+    }
+    sources["ranker"] = path(provenance["selected_paths"]["ltr_path"])
+    components = register_components(sources, "bootstrap")
+    register_pipelines(configurations, components, "bootstrap")
 
 
 def bootstrap(args):
