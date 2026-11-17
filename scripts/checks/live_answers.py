@@ -6,8 +6,8 @@ import time
 
 import httpx
 
-from ledgerlight.analysis import summarize_replay
 from ledgerlight.common import digest, path, read_json, read_jsonl, write_json
+from ledgerlight.posthoc import summarize_replay
 
 
 def dev_queries():

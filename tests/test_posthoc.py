@@ -1,6 +1,6 @@
 import pytest
 
-from ledgerlight.analysis import decompose, metrics, overlap_groups, strata_report, summarize_replay
+from ledgerlight.posthoc import decompose, metrics, overlap_groups, strata_report, summarize_replay
 
 
 def test_decomposition_counts_multiple_positives_once():

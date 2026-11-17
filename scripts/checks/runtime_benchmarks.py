@@ -18,9 +18,9 @@ from runtime_helpers import (
     summary,
 )
 
-from ledgerlight.analysis import latency_summary
 from ledgerlight.common import ROOT, read_json
 from ledgerlight.evaluation import evaluate
+from ledgerlight.posthoc import latency_summary
 
 VARIANTS = ["torch", "ort", "openvino", "triton-ort", "triton-openvino"]
 

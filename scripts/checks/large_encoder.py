@@ -10,9 +10,9 @@ from huggingface_hub import HfApi, snapshot_download
 from sentence_transformers import SentenceTransformer
 from transformers import AutoTokenizer
 
-from ledgerlight.analysis import metrics
 from ledgerlight.common import digest, params, path, read_json, read_jsonl, write_json
 from ledgerlight.final_evaluation import paired_bootstrap
+from ledgerlight.posthoc import metrics
 from ledgerlight.retrieval import encode_queries, encode_windows, fuse, order, parent_scores
 from ledgerlight.test_access import allow_test
 

@@ -10,7 +10,7 @@ from locust.env import Environment
 from locust.exception import StopUser
 from runtime_helpers import OUT, Sampler, dev_queries, save, summarize_samples, summary
 
-from ledgerlight.analysis import latency_summary
+from ledgerlight.posthoc import latency_summary
 
 
 class DemoUser(HttpUser):

@@ -9,8 +9,8 @@ from pathlib import Path
 
 import httpx
 
-from ledgerlight.analysis import latency_summary
 from ledgerlight.common import ROOT, read_json, read_jsonl
+from ledgerlight.posthoc import latency_summary
 
 OUT = ROOT / "data/analysis/serving-benchmarks"
 
