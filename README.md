@@ -144,7 +144,7 @@ docker compose --profile triton pull --ignore-buildable
 The trained weights are published on [Hugging Face](https://huggingface.co/flaretensor/ledgerlight-models) as a model bundle of 25 files (674 MB): the fine-tuned encoder, cross-encoder and ranker with tokenizers and configs, their ONNX exports, `SHA256SUMS` and `provenance.json`. The bootstrap command verifies the checksums, downloads the pinned FinRank file and the pinned Qwen GGUF, and rebuilds the windows, the BM25 and Qdrant indexes and the registry:
 
 ```sh
-python scripts/release_models.py bootstrap --repo flaretensor/ledgerlight-models --revision 5a3dbfd8f1572133792edd6a07c36f4c890995a2
+python scripts/release_models.py bootstrap --repo flaretensor/ledgerlight-models --revision b016486e02dc34324dcbe7be594c9bd2d2f5b732
 # or, from a local copy of the bundle:
 python scripts/release_models.py bootstrap --bundle PATH
 ```
