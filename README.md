@@ -10,6 +10,7 @@ Retrieval-augmented question answering over the public SEC filings of 22 U.S. co
 
 ```mermaid
 flowchart LR
+    classDef default font-size:20px;
     subgraph RET["Retrieval"]
         direction TB
         Q["Question<br/>optional filters"]
