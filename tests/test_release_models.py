@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 def test_downloaded_snapshots_can_be_registered_as_local_artifacts(monkeypatch, tmp_path):
     import huggingface_hub
@@ -50,3 +52,84 @@ def test_downloaded_snapshots_can_be_registered_as_local_artifacts(monkeypatch, 
         assert not (target / "model.safetensors").is_symlink()
     assert calls == [(config["name"], config["revision"]) for config in configs.values()]
     assert reused == []
+
+
+@pytest.fixture
+def release(monkeypatch, tmp_path):
+    from ledgerlight import common
+
+    source = Path(__file__).resolve().parents[1] / "scripts/release_models.py"
+    specification = importlib.util.spec_from_file_location("release_models_test", source)
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    monkeypatch.setattr(common, "ROOT", tmp_path)
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    return module
+
+
+def test_bundle_refuses_nonempty_destination(release, tmp_path):
+    destination = tmp_path / "bundle"
+    destination.mkdir()
+    (destination / "keep").write_bytes(b"existing")
+    with pytest.raises(ValueError) as failure:
+        release.build_bundle(destination)
+    assert str(failure.value) == "Bundle destination is not empty: " + str(destination)
+    assert (destination / "keep").read_bytes() == b"existing"
+
+
+def test_bundle_installs_tracked_card_and_checksums(release, tmp_path, monkeypatch):
+    source_root = Path(__file__).resolve().parents[1]
+    card = tmp_path / "config/model_card.md"
+    card.parent.mkdir()
+    card.write_bytes((source_root / "config/model_card.md").read_bytes())
+    selected = {
+        "encoder_path": "models/encoder/trial-2",
+        "cross_encoder_path": "models/cross_encoder/trial-3",
+        "ltr_path": "models/ltr/trial-37.cbm",
+        "corpus_sha256": "synthetic",
+    }
+    for role in ["encoder", "cross_encoder"]:
+        target = tmp_path / selected[role + "_path"] / "model.safetensors"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"weights")
+        for version in ["1", "2"]:
+            target = tmp_path / f"data/runtime/onnx/{role}/{version}/model.onnx"
+            target.parent.mkdir(parents=True)
+            target.write_bytes(b"onnx")
+    ranker = tmp_path / selected["ltr_path"]
+    ranker.parent.mkdir(parents=True)
+    ranker.write_bytes(b"ranker")
+    split = tmp_path / "data/raw/splits.json"
+    split.parent.mkdir(parents=True)
+    split.write_text("{}")
+    frozen = dict(
+        selected="CatBoost",
+        selection_metric="ndcg@10",
+        dev_queries=118,
+        test_tuning=False,
+        configurations={},
+        dev={},
+    )
+    values = {
+        "models/production/config.json": selected,
+        "data/evaluation/freeze.json": frozen,
+        "data/evaluation/metrics.json": {
+            "dev": {"CatBoost": {}},
+            "test": {"CatBoost": {}},
+            "bootstrap": {},
+        },
+    }
+    monkeypatch.setattr(release, "read_json", values.__getitem__)
+    monkeypatch.setattr(
+        release,
+        "params",
+        lambda: {"data": {"revision": "a" * 40}, "encoder": {}, "cross_encoder": {}},
+    )
+    destination = tmp_path / "bundle"
+    release.build_bundle(destination)
+    assert (destination / "README.md").read_bytes() == card.read_bytes()
+    records = dict(
+        line.split("  ", 1)[::-1] for line in (destination / "SHA256SUMS").read_text().splitlines()
+    )
+    assert records["README.md"] == release.digest(card)
+    assert all(release.digest(destination / name) == expected for name, expected in records.items())

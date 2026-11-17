@@ -16,6 +16,8 @@ from ledgerlight.downloads import download
 
 
 def build_bundle(destination):
+    if destination.exists() and any(destination.iterdir()):
+        raise ValueError("Bundle destination is not empty: " + str(destination))
     destination.mkdir(parents=True, exist_ok=True)
     selected = read_json("models/production/config.json")
     for key in ["encoder_path", "cross_encoder_path", "ltr_path"]:
@@ -80,9 +82,7 @@ def build_bundle(destination):
         )
         + "\n"
     )
-    (destination / "README.md").write_text(
-        "---\nlicense: cc-by-nc-4.0\nlanguage: en\nbase_model:\n- BAAI/bge-small-en-v1.5\n- cross-encoder/ms-marco-MiniLM-L6-v2\ntags:\n- information-retrieval\n- finance\n---\n"
-    )
+    shutil.copyfile(path("config/model_card.md"), destination / "README.md")
     records = []
     for item in sorted(destination.rglob("*")):
         if item.is_file() and item.name != "SHA256SUMS":
