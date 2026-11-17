@@ -272,35 +272,7 @@ def register_fresh(bundle, snapshots):
     register_pipelines(configurations, components, "bootstrap")
 
 
-def bootstrap(args):
-    if path("data/evaluation/test.started.json").exists():
-        raise PermissionError(
-            "Bootstrap must run in a fresh checkout, never the evaluated canonical root"
-        )
-    os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "60")
-    os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "30")
-    started = time.monotonic()
-    reused = []
-    if args.repo:
-        if not args.revision or not re.fullmatch(r"[0-9a-fA-F]{40}", args.revision):
-            raise ValueError("Hugging Face revision must be an immutable 40-character commit")
-        from huggingface_hub import snapshot_download
-
-        bundle = Path(
-            snapshot_download(
-                args.repo, revision=args.revision, local_dir=path("data/bootstrap/bundle")
-            )
-        )
-    else:
-        bundle = args.bundle.resolve()
-    records = verify_bundle(bundle)
-    provenance = json.loads((bundle / "provenance.json").read_text())
-    cfg = params()
-    if (
-        provenance["dataset"]["sha256"] != cfg["data"]["sha256"]
-        or provenance["dataset"]["revision"] != cfg["data"]["revision"]
-    ):
-        raise ValueError("Source and bundle pins differ")
+def restore_payload(bundle, records, provenance, cfg, cache_root, reused):
     for name, expected in records.items():
         if name.startswith(("models/", "data/runtime/onnx/")):
             copy_verified(bundle / name, ROOT / name, expected)
@@ -308,14 +280,14 @@ def bootstrap(args):
         "data/raw/FinRank.jsonl",
         f"https://raw.githubusercontent.com/datanxt/FinRank/{cfg['data']['revision']}/FinRank.jsonl",
         cfg["data"]["sha256"],
-        args.cache_root,
+        cache_root,
         reused,
     )
     cached_file(
         "data/raw/splits.json",
         f"https://raw.githubusercontent.com/datanxt/FinRank/{cfg['data']['revision']}/baselines/splits.json",
         provenance["dataset"]["splits_sha256"],
-        args.cache_root,
+        cache_root,
         reused,
     )
     qwen = read_json("services.lock.json")["qwen"]
@@ -323,21 +295,25 @@ def bootstrap(args):
         "models/qwen/" + qwen["name"],
         qwen["url"],
         qwen["digest"].split(":")[-1],
-        args.cache_root,
+        cache_root,
         reused,
     )
-    snapshots = base_snapshots(args.cache_root, reused)
+    snapshots = base_snapshots(cache_root, reused)
     llama = read_json("services.lock.json")["llama"]
     cached_file(
         ".tools/downloads/" + llama["name"],
         llama["url"],
         llama["digest"].split(":")[-1],
-        args.cache_root,
+        cache_root,
         reused,
     )
     path(".tools/llama").mkdir(parents=True, exist_ok=True)
     with tarfile.open(path(".tools/downloads/" + llama["name"])) as archive:
         archive.extractall(path(".tools/llama"), filter="data")
+    return snapshots
+
+
+def rebuild_indexes(provenance):
     from ledgerlight.data import ingest, validate
     from ledgerlight.retrieval import embed, lexical_index
 
@@ -348,6 +324,9 @@ def bootstrap(args):
     embed(path(provenance["selected_paths"]["encoder_path"]), "indices/trained")
     if digest(path("data/processed/corpus.jsonl")) != provenance["corpus_sha256"]:
         raise ValueError("Rebuilt corpus does not match bundle")
+
+
+def prepare_services(cache_root):
     env_file = ROOT / ".env"
     if not env_file.exists():
         env_file.write_text(
@@ -381,12 +360,12 @@ def bootstrap(args):
     override = path("data/runtime/bootstrap.compose.yaml")
     override.parent.mkdir(parents=True, exist_ok=True)
     configuration = {"services": {"mlflow": {"volumes": ["./mlruns:/workspace/mlruns"]}}}
-    if args.cache_root:
+    if cache_root:
         configuration["services"]["retrieval"] = {
             "build": {
                 "additional_contexts": {
-                    "dependency_cache": str(args.cache_root / ".cache/uv"),
-                    "python_runtime": str(args.cache_root / ".python"),
+                    "dependency_cache": str(cache_root / ".cache/uv"),
+                    "python_runtime": str(cache_root / ".python"),
                 }
             }
         }
@@ -418,6 +397,40 @@ def bootstrap(args):
             break
         except httpx.HTTPError:
             time.sleep(1)
+
+
+def bootstrap(args):
+    if path("data/evaluation/test.started.json").exists():
+        raise PermissionError(
+            "Bootstrap must run in a fresh checkout, never the evaluated canonical root"
+        )
+    os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "60")
+    os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "30")
+    started = time.monotonic()
+    reused = []
+    if args.repo:
+        if not args.revision or not re.fullmatch(r"[0-9a-fA-F]{40}", args.revision):
+            raise ValueError("Hugging Face revision must be an immutable 40-character commit")
+        from huggingface_hub import snapshot_download
+
+        bundle = Path(
+            snapshot_download(
+                args.repo, revision=args.revision, local_dir=path("data/bootstrap/bundle")
+            )
+        )
+    else:
+        bundle = args.bundle.resolve()
+    records = verify_bundle(bundle)
+    provenance = json.loads((bundle / "provenance.json").read_text())
+    cfg = params()
+    if (
+        provenance["dataset"]["sha256"] != cfg["data"]["sha256"]
+        or provenance["dataset"]["revision"] != cfg["data"]["revision"]
+    ):
+        raise ValueError("Source and bundle pins differ")
+    snapshots = restore_payload(bundle, records, provenance, cfg, args.cache_root, reused)
+    rebuild_indexes(provenance)
+    prepare_services(args.cache_root)
     register_fresh(bundle, snapshots)
     result = {
         "seconds": time.monotonic() - started,

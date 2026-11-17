@@ -195,3 +195,41 @@ def test_bundle_rejects_corrupt_file(release, payload):
     (directory / "models/ltr/trial-37.cbm").write_bytes(b"corrupt")
     with pytest.raises(ValueError, match="Bundle checksum or path violation"):
         release.verify_bundle(directory)
+
+
+def test_bootstrap_validates_payload_before_restore_and_rebuild(release, payload, monkeypatch):
+    from argparse import Namespace
+
+    directory, _ = payload
+    (directory / "models/ltr/trial-37.cbm").unlink()
+    monkeypatch.setattr(release, "restore_payload", lambda *args: pytest.fail())
+    monkeypatch.setattr(release, "rebuild_indexes", lambda *args: pytest.fail())
+    monkeypatch.delenv("HF_HUB_DOWNLOAD_TIMEOUT", raising=False)
+    monkeypatch.delenv("HF_HUB_ETAG_TIMEOUT", raising=False)
+    with pytest.raises(ValueError, match="Bundle is missing required files"):
+        release.bootstrap(Namespace(repo=None, bundle=directory))
+
+
+def test_bootstrap_restore_rebuild_registration_order(release, payload, monkeypatch):
+    from argparse import Namespace
+
+    directory, sums = payload
+    provenance = json.loads((directory / "provenance.json").read_text())
+    provenance["dataset"] = {"revision": "revision", "sha256": "sha256"}
+    (directory / "provenance.json").write_text(json.dumps(provenance))
+    sums()
+    calls = []
+    monkeypatch.setattr(release, "params", lambda: {"data": provenance["dataset"]})
+    monkeypatch.setattr(
+        release, "restore_payload", lambda *args: calls.append("restore") or {"encoder": "snapshot"}
+    )
+    monkeypatch.setattr(release, "rebuild_indexes", lambda *args: calls.append("rebuild"))
+    monkeypatch.setattr(release, "prepare_services", lambda *args: calls.append("services"))
+    monkeypatch.setattr(release, "register_fresh", lambda *args: calls.append("register"))
+    monkeypatch.setattr(release, "read_json", lambda name: {"selected": "7"})
+    monkeypatch.setenv("HF_HUB_DOWNLOAD_TIMEOUT", "90")
+    monkeypatch.setenv("HF_HUB_ETAG_TIMEOUT", "45")
+    release.bootstrap(Namespace(repo=None, bundle=directory, cache_root=None, prepare_only=True))
+    assert calls == ["restore", "rebuild", "services", "register"]
+    assert release.os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] == "90"
+    assert release.os.environ["HF_HUB_ETAG_TIMEOUT"] == "45"
