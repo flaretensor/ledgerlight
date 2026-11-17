@@ -8,6 +8,7 @@ import traceback
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import MappingProxyType
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -107,6 +108,44 @@ def capacity():
     return ADMISSION.snapshot()
 
 
+def completion_body(messages, thinking, max_tokens, streaming=False):
+    body = {
+        "model": "ledgerlight-qwen",
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": 0.2,
+        "top_p": 0.8,
+        "seed": 42,
+        "cache_prompt": False,
+        "chat_template_kwargs": {"enable_thinking": thinking},
+    }
+    if streaming:
+        body.update(stream=True, stream_options={"include_usage": True})
+    return MappingProxyType(body)
+
+
+def llm_provenance():
+    pins = read_json("services.lock.json")
+    return MappingProxyType(
+        {
+            "revision": pins["qwen"]["revision"],
+            "sha256": pins["qwen"]["digest"],
+            "runtime_build": pins["llama"]["revision"],
+        }
+    )
+
+
+def record_outcome(outcome, latencies):
+    OUTCOMES.labels(outcome).inc()
+    REQUESTS.labels("gateway", outcome).inc()
+    if outcome == "abstained":
+        ABSTENTIONS.inc()
+    if "first_text" in latencies:
+        FIRST_TEXT.observe(latencies["first_text"])
+    for name, seconds in latencies.items():
+        STAGES.labels("gateway", name).observe(max(0, seconds))
+
+
 def complete(client, question, issued, thinking=True):
     cfg = params()["serving"]
     from ledgerlight.prompt_budget import pack_prompt
@@ -114,17 +153,8 @@ def complete(client, question, issued, thinking=True):
     messages, prompt_tokens, clipped = pack_prompt(
         client, LLM_URL, SYSTEM, question, issued, cfg, thinking
     )
-    body = {
-        "model": "ledgerlight-qwen",
-        "messages": messages,
-        "max_tokens": cfg["max_tokens"],
-        "temperature": 0.2,
-        "top_p": 0.8,
-        "seed": 42,
-        "cache_prompt": False,
-        "chat_template_kwargs": {"enable_thinking": thinking},
-    }
-    response = client.post(LLM_URL + "/v1/chat/completions", json=body)
+    body = completion_body(messages, thinking, cfg["max_tokens"])
+    response = client.post(LLM_URL + "/v1/chat/completions", json=dict(body))
     response.raise_for_status()
     payload = response.json()
     choice = payload["choices"][0]
@@ -159,18 +189,7 @@ async def stream_completion(client, question, issued, thinking=True):
     messages, prompt_tokens, clipped = await asyncio.to_thread(
         pack_stream_prompt, question, issued, thinking
     )
-    body = {
-        "model": "ledgerlight-qwen",
-        "messages": messages,
-        "max_tokens": params()["serving"]["max_tokens"],
-        "temperature": 0.2,
-        "top_p": 0.8,
-        "seed": 42,
-        "cache_prompt": False,
-        "chat_template_kwargs": {"enable_thinking": thinking},
-        "stream": True,
-        "stream_options": {"include_usage": True},
-    }
+    body = completion_body(messages, thinking, params()["serving"]["max_tokens"], streaming=True)
     output = ""
     metadata = {
         "finish_reason": None,
@@ -181,7 +200,7 @@ async def stream_completion(client, question, issued, thinking=True):
         "context_clipped": clipped,
         "reasoning_present": False,
     }
-    async with client.stream("POST", LLM_URL + "/v1/chat/completions", json=body) as response:
+    async with client.stream("POST", LLM_URL + "/v1/chat/completions", json=dict(body)) as response:
         response.raise_for_status()
         async for line in response.aiter_lines():
             if not line.startswith("data:"):
@@ -288,12 +307,7 @@ async def ask_stream(request: Request, payload: AskRequest):
                 )
                 response.raise_for_status()
                 ranking = response.json()
-                pins = read_json("services.lock.json")
-                ranking.setdefault("versions", {})["llm"] = {
-                    "revision": pins["qwen"]["revision"],
-                    "sha256": pins["qwen"]["digest"],
-                    "runtime_build": pins["llama"]["revision"],
-                }
+                ranking.setdefault("versions", {})["llm"] = dict(llm_provenance())
                 latencies["retrieval"] = time.perf_counter() - clock
                 latencies.update(
                     {"retrieval_" + k: v for k, v in ranking.get("latencies", {}).items()}
@@ -336,14 +350,7 @@ async def ask_stream(request: Request, payload: AskRequest):
             ERRORS.labels("gateway", "stream").inc()
             yield sse("error", {"code": "error"})
         finally:
-            OUTCOMES.labels(outcome).inc()
-            REQUESTS.labels("gateway", outcome).inc()
-            if outcome == "abstained":
-                ABSTENTIONS.inc()
-            if "first_text" in latencies:
-                FIRST_TEXT.observe(latencies["first_text"])
-            for name, seconds in latencies.items():
-                STAGES.labels("gateway", name).observe(max(0, seconds))
+            record_outcome(outcome, latencies)
             finish_ticket(ticket)
 
     return StreamingResponse(
@@ -388,12 +395,7 @@ def ask(request: AskRequest, incoming: Request):
                 )
                 response.raise_for_status()
                 retrieval = response.json()
-                pins = read_json("services.lock.json")
-                retrieval.setdefault("versions", {})["llm"] = {
-                    "revision": pins["qwen"]["revision"],
-                    "sha256": pins["qwen"]["digest"],
-                    "runtime_build": pins["llama"]["revision"],
-                }
+                retrieval.setdefault("versions", {})["llm"] = dict(llm_provenance())
                 latencies["retrieval"] = time.perf_counter() - clock
                 if retrieval["results"]:
                     issued = issue(retrieval["results"])
@@ -429,12 +431,7 @@ def ask(request: AskRequest, incoming: Request):
     finally:
         latencies["e2e"] = time.perf_counter() - started
         finish_ticket(ticket)
-        OUTCOMES.labels(outcome).inc()
-        REQUESTS.labels("gateway", outcome).inc()
-        if outcome == "abstained":
-            ABSTENTIONS.inc()
-        for name, seconds in latencies.items():
-            STAGES.labels("gateway", name).observe(max(0, seconds))
+        record_outcome(outcome, latencies)
     return {
         "request_id": request_id,
         "answer": answer,

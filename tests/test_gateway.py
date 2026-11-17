@@ -152,3 +152,26 @@ def test_active_stream_disconnect_releases_slot_and_closes_upstream(monkeypatch)
     asyncio.run(run())
     assert closed == [True]
     assert gateway.ADMISSION.snapshot() == {"active": False, "waiting": 0}
+
+
+def test_shared_completion_and_provenance_builders_are_immutable(monkeypatch):
+    from ledgerlight import gateway
+
+    messages = [{"role": "user", "content": "Synthetic"}]
+    sync = gateway.completion_body(messages, True, 1024)
+    stream = gateway.completion_body(messages, True, 1024, streaming=True)
+    assert dict(sync) == {k: v for k, v in stream.items() if k not in {"stream", "stream_options"}}
+    assert stream["stream"] and stream["stream_options"] == {"include_usage": True}
+    with pytest.raises(TypeError):
+        sync["temperature"] = 1
+    pins = {"qwen": {"revision": "revision", "digest": "digest"}, "llama": {"revision": "build"}}
+    monkeypatch.setattr(gateway, "read_json", lambda name: pins)
+    provenance = gateway.llm_provenance()
+    assert dict(provenance) == {
+        "revision": "revision",
+        "sha256": "digest",
+        "runtime_build": "build",
+    }
+    with pytest.raises(TypeError):
+        provenance["revision"] = "changed"
+    assert pins["qwen"]["revision"] == "revision"
