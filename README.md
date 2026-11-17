@@ -1,10 +1,27 @@
 # Ledgerlight
 
-Ledgerlight answers questions about the financial reports of 22 U.S. companies and cites the passages it used. If the passages don't support an answer, or the answer cites none of them, no answer is shown.
-
-**Demo:** <https://ledgerlight.flaretensor.uk> (online only while the stack is running)
+Retrieval-augmented question answering over the public SEC filings of 22 U.S. companies. Hybrid retrieval and a learned ranker select the evidence, and a local Qwen3.5-2B model writes a short answer that cites it. If the passages don't support an answer, or the answer cites none of them, no answer is shown.
 
 **Result:** on held-out TEST questions, the full ranking pipeline reaches nDCG@10 of 38.58%, against 22.79% for BM25 (+15.79 points, 95% CI 10.27 to 21.44; see [How to read the results](#how-to-read-the-results)).
+
+**Demo:** <https://ledgerlight.flaretensor.uk\> (online while the stack is running)
+
+## Pipeline
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 400}}}%%
+flowchart LR
+    Q["Question and<br/>optional filters"] --> B["BM25<br/>top 100"]
+    Q --> D["Fine-tuned BGE-small<br/>Qdrant, top 100"]
+    B --> R["Rank fusion (RRF)<br/>100 candidates"]
+    D --> R
+    R --> C["Fine-tuned MiniLM<br/>cross-encoder"]
+    C --> L["CatBoost YetiRank<br/>14 features"]
+    L --> G["Qwen3.5-2B<br/>top 5 windows"]
+    G --> V["Citation check<br/>streamed answer"]
+```
+
+Each step is described in [How a question is answered](#how-a-question-is-answered).
 
 ## Stack
 
