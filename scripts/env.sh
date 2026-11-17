@@ -12,7 +12,6 @@ export npm_config_cache="$LEDGERLIGHT_ROOT/.cache/npm"
 export MLFLOW_TRACKING_URI="http://127.0.0.1:5000"
 export MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING=false
 export MLFLOW_ARTIFACT_ROOT="$LEDGERLIGHT_ROOT/mlruns/artifacts"
-export OPTUNA_STORAGE="sqlite:///$LEDGERLIGHT_ROOT/data/optuna.db"
 export STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
 export OMP_NUM_THREADS=8
 export MKL_NUM_THREADS=8
