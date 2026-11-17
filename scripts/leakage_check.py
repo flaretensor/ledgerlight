@@ -7,9 +7,10 @@ import numpy as np
 from catboost import CatBoostRanker
 
 import ledgerlight.features as feature_module
-from ledgerlight.common import digest, path, read_json, read_jsonl, write_json
+from ledgerlight.common import digest, path, read_json, write_json
 from ledgerlight.data import normalize
 from ledgerlight.retrieval import fuse, order
+from ledgerlight.split_guard import read_queries
 
 SOURCES = {
     "bm25": "Query text and indexed passage text; bm25s Lucene score",
@@ -133,7 +134,7 @@ def full_audit():
     a, b = set(split["A"]), set(split["B"])
     assert not a & b and a | b == set(official["train"])
     assert not (a | b) & (set(official["dev"]) | set(official["test"]))
-    queries = {q["id"]: q["question"] for q in read_jsonl("data/processed/queries.jsonl")}
+    queries = {q["id"]: q["question"] for q in read_queries()}
     assert not {normalize(queries[q]) for q in a} & {normalize(queries[q]) for q in b}
     examples = read_json("data/training/examples.json")
     assert {row["qid"] for row in examples} <= a

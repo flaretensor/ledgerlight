@@ -7,7 +7,7 @@ import numpy as np
 from ledgerlight.common import digest, path, read_json, read_jsonl, write_json
 from ledgerlight.evaluation import evaluate
 from ledgerlight.final_evaluation import paired_bootstrap
-from ledgerlight.split_guard import allow_test
+from ledgerlight.split_guard import allow_test, read_queries
 
 NOTE = "post-hoc descriptive, not used for selection"
 EXTRA = ["recall@5", "ndcg@5", "hit_rate@5", "hit_rate@10"]
@@ -173,7 +173,7 @@ def posthoc():
     corpus = read_jsonl("data/processed/corpus.jsonl")
     texts = {p["id"]: p["text"] for p in corpus}
     with allow_test(True):
-        queries = {q["id"]: q["question"] for q in read_jsonl("data/processed/queries.jsonl")}
+        queries = {q["id"]: q["question"] for q in read_queries()}
     ranks = {
         "dev": read_json("data/evaluation/dev_rankings.json"),
         "test": read_json("data/evaluation/rankings.json"),

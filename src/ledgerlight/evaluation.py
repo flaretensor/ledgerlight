@@ -7,6 +7,7 @@ import numpy as np
 
 from ledgerlight.common import namespace, params, path, read_json, read_jsonl, write_json
 from ledgerlight.retrieval import cross_scores, fuse, load_model, order
+from ledgerlight.split_guard import read_queries
 
 METRICS = ["recall@10", "recall@20", "recall@100", "ndcg@10", "mrr"]
 
@@ -48,7 +49,7 @@ def tracking(name, metrics, parameters, artifact=None):
 def baseline():
     started = time.monotonic()
     corpus = read_jsonl("data/processed/corpus.jsonl")
-    queries = read_jsonl("data/processed/queries.jsonl")
+    queries = read_queries()
     query_index = {q["id"]: i for i, q in enumerate(queries)}
     labels = read_json("data/processed/labels.json")
     dev = read_json("data/processed/splits.json")["dev"]

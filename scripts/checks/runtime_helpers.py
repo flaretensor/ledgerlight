@@ -9,8 +9,9 @@ from pathlib import Path
 
 import httpx
 
-from ledgerlight.common import ROOT, read_json, read_jsonl
+from ledgerlight.common import ROOT, read_json
 from ledgerlight.posthoc import latency_summary
+from ledgerlight.split_guard import read_queries
 
 OUT = ROOT / "data/analysis/serving-benchmarks"
 
@@ -33,7 +34,7 @@ def summary(section, name, value):
 
 def dev_queries():
     ids = set(read_json("data/processed/splits.json")["dev"])
-    return [q for q in read_jsonl("data/processed/queries.jsonl") if q["id"] in ids]
+    return [q for q in read_queries() if q["id"] in ids]
 
 
 def lifecycle(action, directory, search=None, layers=None, triton=False, threads=None):

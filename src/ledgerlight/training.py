@@ -22,6 +22,7 @@ from ledgerlight.retrieval import (
     order,
     parent_scores,
 )
+from ledgerlight.split_guard import read_queries
 
 
 def study_name(kind):
@@ -41,7 +42,7 @@ def seed_everything(seed):
 
 
 def prepare():
-    queries = read_jsonl("data/processed/queries.jsonl")
+    queries = read_queries()
     corpus = read_jsonl("data/processed/corpus.jsonl")
     labels = read_json("data/processed/labels.json")
     splits = read_json("data/processed/splits.json")
@@ -194,7 +195,7 @@ def fit_encoder(config, seed, destination):
 def encoder_metrics(model):
     windows = read_jsonl("indices/base/windows.jsonl")
     corpus = read_jsonl("data/processed/corpus.jsonl")
-    queries = read_jsonl("data/processed/queries.jsonl")
+    queries = read_queries()
     dev = set(read_json("data/processed/splits.json")["dev"])
     selected = [q for q in queries if q["id"] in dev]
     vectors = encode_windows(model, windows)
@@ -366,7 +367,7 @@ def fit_cross_encoder(config, seed, destination):
 
 
 def candidate_context(index_name="trained"):
-    queries = read_jsonl("data/processed/queries.jsonl")
+    queries = read_queries()
     from ledgerlight.common import digest
 
     return {

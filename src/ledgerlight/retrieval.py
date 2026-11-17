@@ -6,6 +6,7 @@ import time
 import numpy as np
 
 from ledgerlight.common import params, path, read_jsonl, write_json, write_jsonl
+from ledgerlight.split_guard import read_queries
 
 
 def order(scores):
@@ -54,7 +55,7 @@ def lexical_index():
     import bm25s
 
     corpus = read_jsonl("data/processed/corpus.jsonl")
-    queries = read_jsonl("data/processed/queries.jsonl")
+    queries = read_queries()
     token_lists = [re.findall(r"\w+", p["text"].lower()) for p in corpus]
     index = bm25s.BM25(k1=1.5, b=0.75, method="lucene")
     index.index(token_lists, show_progress=False)
@@ -173,7 +174,7 @@ def embed(model_path=None, destination="indices/base"):
     started = time.monotonic()
     model = load_model(model_path=model_path)
     corpus = read_jsonl("data/processed/corpus.jsonl")
-    queries = read_jsonl("data/processed/queries.jsonl")
+    queries = read_queries()
     windows = make_windows(model.tokenizer, corpus)
     vectors = encode_windows(model, windows, params()["encoder"]["batch_size"])
     active = active_queries(queries)

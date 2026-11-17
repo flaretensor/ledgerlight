@@ -16,6 +16,7 @@ from ledgerlight.features import features
 from ledgerlight.inference import RuntimeCrossEncoder, RuntimeEncoder
 from ledgerlight.onnx_backend import OnnxCrossEncoder, OnnxEncoder
 from ledgerlight.retrieval import best_windows, encode_queries, fuse, load_model, order
+from ledgerlight.split_guard import read_queries
 
 
 def main():
@@ -35,7 +36,7 @@ def main():
     torch.backends.cudnn.allow_tf32 = False
     config = read_json("models/production/config.json")
     ids = sorted(read_json("data/processed/splits.json")["dev"])
-    questions = {q["id"]: q for q in read_jsonl("data/processed/queries.jsonl") if q["id"] in ids}
+    questions = {q["id"]: q for q in read_queries() if q["id"] in ids}
     corpus = read_jsonl("data/processed/corpus.jsonl")
     windows = read_jsonl("indices/base/windows.jsonl")
     vectors = np.load(path("indices/trained/vectors.npy"))

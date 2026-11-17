@@ -194,10 +194,11 @@ def main():
         )
         program = """import json,httpx
 from pathlib import Path
-from ledgerlight.common import read_json,read_jsonl,digest
+from ledgerlight.common import read_json,digest
+from ledgerlight.split_guard import read_queries
 from ledgerlight.evaluation import evaluate
 ids=set(read_json("data/processed/splits.json")["dev"])
-queries=[q for q in read_jsonl("data/processed/queries.jsonl") if q["id"] in ids]
+queries=[q for q in read_queries() if q["id"] in ids]
 out={"ask":[],"rankings":{}}
 with httpx.Client(timeout=300) as client:
  for q in queries[:3]:

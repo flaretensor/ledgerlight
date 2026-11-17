@@ -29,7 +29,9 @@ def test_query_reader_does_not_decode_held_out_question(monkeypatch, tmp_path):
     (target / "queries.jsonl").write_bytes(
         b'{"id":"q","question":"Allowed"}\n{"id":"held",INVALID UNREAD QUESTION}\n'
     )
-    assert common.read_jsonl("data/processed/queries.jsonl") == [
+    from ledgerlight.split_guard import read_queries
+
+    assert read_queries() == [
         {"id": "q", "question": "Allowed"},
         {"id": "held", "question": ""},
     ]

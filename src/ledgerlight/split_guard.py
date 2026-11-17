@@ -1,3 +1,5 @@
+import json
+import re
 from contextlib import contextmanager
 from contextvars import ContextVar
 
@@ -26,3 +28,20 @@ def allow_test(enabled):
         yield
     finally:
         _ALLOWED.reset(token)
+
+
+def read_queries():
+    splits = read_json("data/processed/splits.json")
+    allowed = set(splits["train"]) | set(splits["dev"])
+    rows = []
+    with path("data/processed/queries.jsonl").open("rb") as stream:
+        for line in stream:
+            if not line.strip():
+                continue
+            qid = json.loads(re.match(rb'\s*\{\s*"id"\s*:\s*("[^"]+")', line)[1])
+            rows.append(
+                json.loads(line)
+                if qid in allowed or held_out_allowed()
+                else {"id": qid, "question": ""}
+            )
+    return rows

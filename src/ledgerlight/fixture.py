@@ -8,6 +8,7 @@ import uuid
 import numpy as np
 
 from ledgerlight.common import ROOT, path, read_json, read_jsonl, write_json, write_jsonl
+from ledgerlight.split_guard import read_queries
 
 
 def ingest_fixture():
@@ -58,7 +59,7 @@ def fit_fixture():
     from catboost import CatBoostRanker, Pool
 
     corpus = read_jsonl("data/processed/corpus.jsonl")
-    queries = read_jsonl("data/processed/queries.jsonl")
+    queries = read_queries()
     labels = read_json("data/processed/labels.json")
     train = set(read_json("data/processed/splits.json")["train"])
     scores = np.load(path("indices/bm25/scores.npy"))
@@ -90,7 +91,7 @@ def evaluate_fixture():
     from ledgerlight.retrieval import order
 
     corpus = read_jsonl("data/processed/corpus.jsonl")
-    queries = read_jsonl("data/processed/queries.jsonl")
+    queries = read_queries()
     splits = read_json("data/processed/splits.json")
     scores = np.load(path("indices/bm25/scores.npy"))
     labels = read_json("data/processed/labels.json")

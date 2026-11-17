@@ -6,12 +6,13 @@ import time
 
 import httpx
 
-from ledgerlight.common import digest, path, read_json, read_jsonl, write_json
+from ledgerlight.common import digest, path, read_json, write_json
 from ledgerlight.posthoc import summarize_replay
+from ledgerlight.split_guard import read_queries
 
 
 def dev_queries():
-    queries = {q["id"]: q["question"] for q in read_jsonl("data/processed/queries.jsonl")}
+    queries = {q["id"]: q["question"] for q in read_queries()}
     return {q: queries[q] for q in sorted(read_json("data/processed/splits.json")["dev"])}
 
 

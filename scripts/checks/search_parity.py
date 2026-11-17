@@ -5,9 +5,10 @@ import httpx
 import numpy as np
 from catboost import CatBoostRanker
 
-from ledgerlight.common import path, read_json, read_jsonl, write_json
+from ledgerlight.common import path, read_json, write_json
 from ledgerlight.evaluation import tracking
 from ledgerlight.retrieval import fuse, order
+from ledgerlight.split_guard import read_queries
 from ledgerlight.training import candidate_context, ce_rankings, rank_ltr
 
 
@@ -42,7 +43,7 @@ def main():
         model = CatBoostRanker()
         model.load_model(str(path(config["ltr_path"])))
         expected = rank_ltr(model, read_json("data/training/ltr_scores.json")["dev"], context)
-    queries = {q["id"]: q["question"] for q in read_jsonl("data/processed/queries.jsonl")}
+    queries = {q["id"]: q["question"] for q in read_queries()}
     rows = []
     backend = None
     with httpx.Client(timeout=180) as client:

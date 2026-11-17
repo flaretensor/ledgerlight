@@ -15,7 +15,7 @@ from ledgerlight.common import digest, params, path, read_json, read_jsonl, writ
 from ledgerlight.final_evaluation import paired_bootstrap
 from ledgerlight.posthoc import metrics
 from ledgerlight.retrieval import encode_queries, encode_windows, fuse, order, parent_scores
-from ledgerlight.split_guard import allow_test
+from ledgerlight.split_guard import allow_test, read_queries
 
 
 def main():
@@ -159,7 +159,7 @@ def main():
         np.save(target / "vectors.npy", vectors)
         del chunks
         with allow_test(True):
-            all_queries = read_jsonl("data/processed/queries.jsonl")
+            all_queries = read_queries()
         splits = read_json("data/processed/splits.json")
         wanted = set(splits["dev"] + splits["test"])
         queries = sorted((q for q in all_queries if q["id"] in wanted), key=lambda q: q["id"])
