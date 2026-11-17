@@ -12,7 +12,6 @@ cross_encoder:
   name: cross-encoder/ms-marco-MiniLM-L6-v2
   revision: 233902d25c440f23af6f7d6e94d2946bac0bee0a
 retrieval:
-  top_k: 100
   rrf_grid: [10, 30, 60, 100]
   rerank_grid: [20, 50, 100]
   windows_per_passage: 1
