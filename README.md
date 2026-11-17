@@ -25,15 +25,17 @@ flowchart TB
         R --> C
     end
 
+    L["CatBoost YetiRank<br/>14 features"]
+
     subgraph ROW2[" "]
         direction LR
-        L["CatBoost YetiRank<br/>14 features"]
         G["Qwen3.5-2B<br/>top 5 windows"]
         V["Citation check<br/>streamed answer"]
-        L --> G --> V
+        G --> V
     end
 
-    ROW1 --> ROW2
+    ROW1 --> L
+    L --> ROW2
 
     style ROW1 fill:none,stroke:#999
     style ROW2 fill:none,stroke:#999
