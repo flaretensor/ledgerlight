@@ -31,7 +31,9 @@ def command():
 
 def main():
     subprocess.run(
-        command() + ["up", "-d", "--build", "--pull", "never", "postgres", "mlflow"], check=True
+        command() + ["up", "-d", "--build", "--pull", "never", "postgres", "mlflow"],
+        check=True,
+        timeout=300,
     )
     deadline = time.monotonic() + 240
     while time.monotonic() < deadline:

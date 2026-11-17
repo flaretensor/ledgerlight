@@ -32,6 +32,7 @@ def public_token():
 
 
 def run(command, **kwargs):
+    kwargs.setdefault("timeout", 300)
     return subprocess.run(command, check=True, **kwargs)
 
 
@@ -45,19 +46,22 @@ def container_ids(running=False):
             "label=com.docker.compose.project=" + PROJECT,
         ],
         text=True,
+        timeout=300,
     ).split()
 
 
 def inspect_containers():
     ids = container_ids()
-    return json.loads(subprocess.check_output(["docker", "inspect", *ids])) if ids else []
+    return (
+        json.loads(subprocess.check_output(["docker", "inspect", *ids], timeout=300)) if ids else []
+    )
 
 
 def project_pids():
     pids = set()
     for identifier in container_ids(True):
         result = subprocess.run(
-            ["docker", "top", identifier, "-eo", "pid"], capture_output=True, text=True
+            ["docker", "top", identifier, "-eo", "pid"], capture_output=True, text=True, timeout=300
         )
         pids.update(
             int(line.strip()) for line in result.stdout.splitlines() if line.strip().isdigit()
@@ -70,6 +74,7 @@ def gpu_processes(pids):
         ["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"],
         capture_output=True,
         text=True,
+        timeout=300,
     )
     rows = []
     for line in result.stdout.splitlines():
@@ -155,7 +160,9 @@ def configure(args):
     config.update(peak_vram_mib=peak, vram_estimate=estimated)
     free = int(
         subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"], text=True
+            ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+            text=True,
+            timeout=300,
         ).splitlines()[0]
     )
     cpu_only = config["search"] == "openvino" and layers == "0"
@@ -248,7 +255,7 @@ def start(args):
     if config["triton"]:
         run(cmd + ["up", "-d", "--no-build", "--pull", "never", "triton"])
         healthy("http://127.0.0.1:8002/v2/health/ready", time.monotonic() + 180)
-    run(cmd + ["up", "-d", "--no-build", "--pull", "never"], timeout=600)
+    run(cmd + ["up", "-d", "--no-build", "--pull", "never"], timeout=300)
     for port, endpoint in [
         (8000, "/health"),
         (8501, "/_stcore/health"),
@@ -284,7 +291,7 @@ def stop():
         ],
     ]:
         if group:
-            run(["docker", "stop", "--timeout", "30", *group], timeout=90)
+            run(["docker", "stop", "--timeout", "30", *group], timeout=300)
     tunnel_ids = [
         c["Id"]
         for c in containers
@@ -374,7 +381,7 @@ def main():
     parser.add_argument("--public", action="store_true")
     args = parser.parse_args()
     if subprocess.run(
-        ["docker", "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        ["docker", "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300
     ).returncode:
         print("Docker is not running: sudo systemctl start docker")
         return 1

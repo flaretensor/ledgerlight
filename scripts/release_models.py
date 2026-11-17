@@ -366,6 +366,8 @@ def bootstrap(args):
         raise PermissionError(
             "Bootstrap must run in a fresh checkout, never the evaluated canonical root"
         )
+    os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "60")
+    os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "30")
     started = time.monotonic()
     reused = []
     if args.repo:
@@ -491,9 +493,11 @@ def bootstrap(args):
         "-f",
         str(override),
     ]
-    subprocess.run(command + ["build", "retrieval", "forwarder"], check=True)
+    subprocess.run(command + ["build", "retrieval", "forwarder"], check=True, timeout=300)
     subprocess.run(
-        command + ["up", "-d", "--no-build", "--pull", "never", "postgres", "mlflow"], check=True
+        command + ["up", "-d", "--no-build", "--pull", "never", "postgres", "mlflow"],
+        check=True,
+        timeout=300,
     )
     import httpx
 

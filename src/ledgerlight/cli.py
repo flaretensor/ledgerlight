@@ -36,7 +36,9 @@ def start():
 
     from ledgerlight.common import ROOT
 
-    subprocess.run([sys.executable, "scripts/compose.py", "start"], cwd=ROOT, check=True)
+    subprocess.run(
+        [sys.executable, "scripts/compose.py", "start"], cwd=ROOT, check=True, timeout=300
+    )
 
 
 @app.command()
@@ -46,7 +48,9 @@ def stop():
 
     from ledgerlight.common import ROOT
 
-    subprocess.run([sys.executable, "scripts/compose.py", "stop"], cwd=ROOT, check=True)
+    subprocess.run(
+        [sys.executable, "scripts/compose.py", "stop"], cwd=ROOT, check=True, timeout=300
+    )
 
 
 @app.command()
