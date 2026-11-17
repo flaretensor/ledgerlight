@@ -9,8 +9,10 @@ Retrieval-augmented question answering over the public SEC filings of 22 U.S. co
 ## Pipeline
 
 ```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 25, "rankSpacing": 30}}}%%
 flowchart LR
     classDef default font-size:20px;
+
     subgraph RET["Retrieval"]
         direction TB
         Q["Question<br/>optional filters"]
@@ -23,7 +25,7 @@ flowchart LR
     subgraph RANK["Reranking"]
         direction TB
         R["RRF<br/>100 parent candidates"]
-        C["Fine-tuned MiniLM<br/>cross-encoder · 100 candidates"]
+        C["MiniLM cross-encoder<br/>fine-tuned · 100 candidates"]
         L["CatBoost YetiRank<br/>14 features"]
         R --> C --> L
     end
