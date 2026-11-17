@@ -9,16 +9,13 @@ Retrieval-augmented question answering over the public SEC filings of 22 U.S. co
 ## Pipeline
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 400}}}%%
-flowchart TB
-    Q["Question and<br/>optional filters"] --> B["BM25<br/>top 100"]
-    Q --> D["Fine-tuned BGE-small<br/>Qdrant, top 100"]
-    B --> R["Rank fusion (RRF)<br/>100 candidates"]
-    D --> R
-    R --> C["Fine-tuned MiniLM<br/>cross-encoder"]
-    C --> L["CatBoost YetiRank<br/>14 features"]
-    L --> G["Qwen3.5-2B<br/>top 5 windows"]
-    G --> V["Citation check<br/>streamed answer"]
+flowchart LR
+    Q["Question<br/>+ filters"]
+    R["Retrieval<br/>BM25 + BGE/Qdrant"]
+    L["Ranking<br/>RRF → MiniLM → CatBoost"]
+    A["Answer<br/>Qwen3.5-2B + citations"]
+
+    Q --> R --> L --> A
 ```
 
 Each step is described in [How a question is answered](#how-a-question-is-answered).
