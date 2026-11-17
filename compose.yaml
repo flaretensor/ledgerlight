@@ -37,7 +37,7 @@ x-app: &app
   networks: [backend]
 services:
   postgres:
-    image: pgvector/pgvector:pg18
+    image: pgvector/pgvector:pg18@sha256:c29f30688a9ad961691bdf0ec1650717cc132a5814619d80f80463d6e4c42e47
     user: "1000:1000"
     restart: "no"
     cap_drop: [ALL]
@@ -81,7 +81,7 @@ services:
     mem_limit: 2g
     pids_limit: 256
   qdrant:
-    image: qdrant/qdrant:v1.20.0
+    image: qdrant/qdrant:v1.20.0@sha256:9bfc89f9914fc14876a88c05270685921a55b8877b254a98bcc1cc2f0a424cd2
     user: "1000:1000"
     restart: "no"
     cap_drop: [ALL]
@@ -216,7 +216,7 @@ services:
     mem_limit: 64m
     pids_limit: 32
   prometheus:
-    image: prom/prometheus:v3.16.0
+    image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
     user: "1000:1000"
     restart: "no"
     command: [--config.file=/etc/prometheus/prometheus.yml, --storage.tsdb.path=/prometheus, --web.listen-address=0.0.0.0:9090]
@@ -224,7 +224,7 @@ services:
     volumes: [./config/prometheus.yaml:/etc/prometheus/prometheus.yml:ro, ./data/prometheus:/prometheus]
     networks: [backend]
   grafana:
-    image: grafana/grafana:13.3.1
+    image: grafana/grafana:13.3.1@sha256:0615ec4fbd4072004b7d86b46ded63013a74b7d6eb1119273dd89e8fa25c13cf
     user: "1000:1000"
     restart: "no"
     environment:
