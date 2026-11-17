@@ -383,7 +383,7 @@ def prepare_services(cache_root):
         "-f",
         str(override),
     ]
-    subprocess.run(command + ["build", "retrieval", "forwarder"], check=True, timeout=300)
+    subprocess.run(command + ["build", "retrieval", "forwarder"], check=True)
     subprocess.run(
         command + ["up", "-d", "--no-build", "--pull", "never", "postgres", "mlflow"],
         check=True,
