@@ -22,7 +22,7 @@ class DemoUser(HttpUser):
     @task
     def measure(self):
         specification = self.environment.specification
-        for repetition in range(specification["requests"]):
+        for _repetition in range(specification["requests"]):
             started = time.monotonic()
             row = {
                 "started_monotonic": started,
