@@ -1,8 +1,8 @@
 import argparse
 import json
-import urllib.request
 
 from ledgerlight.common import digest, params, path, write_json
+from ledgerlight.downloads import download
 
 
 def ingest():
@@ -10,10 +10,15 @@ def ingest():
     root = path("data/raw")
     root.mkdir(parents=True, exist_ok=True)
     base = f"https://raw.githubusercontent.com/datanxt/FinRank/{cfg['revision']}/"
+
+    def verify(target):
+        actual = digest(target)
+        if actual != cfg["sha256"]:
+            raise ValueError(f"Dataset checksum mismatch: {actual}")
+
     for name in ("FinRank.jsonl", "baselines/splits.json"):
         target = root / name.split("/")[-1]
-        if not target.exists():
-            urllib.request.urlretrieve(base + name, target)
+        download(base + name, target, verify if name == "FinRank.jsonl" else None)
     actual = digest(root / "FinRank.jsonl")
     if actual != cfg["sha256"]:
         raise ValueError(f"Dataset checksum mismatch: {actual}")

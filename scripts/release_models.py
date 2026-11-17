@@ -9,10 +9,10 @@ import subprocess
 import sys
 import tarfile
 import time
-import urllib.request
 from pathlib import Path
 
 from ledgerlight.common import ROOT, digest, params, path, read_json, write_json
+from ledgerlight.downloads import download
 
 
 def build_bundle(destination):
@@ -133,14 +133,18 @@ def copy_verified(source, target, expected):
 def cached_file(relative, url, expected, cache_root, reused):
     target = ROOT / relative
     target.parent.mkdir(parents=True, exist_ok=True)
+
+    def verify(candidate):
+        if digest(candidate) != expected:
+            raise ValueError("Pinned download checksum mismatch: " + relative)
+
     source = cache_root / relative if cache_root else None
     if source and source.is_file():
-        copy_verified(source, target, expected)
+        download(source.resolve().as_uri(), target, verify)
         reused.append({"path": relative, "sha256": expected})
-    elif not target.is_file():
-        urllib.request.urlretrieve(url, target)
-    if digest(target) != expected:
-        raise ValueError("Pinned download checksum mismatch: " + relative)
+    else:
+        download(url, target, verify)
+    verify(target)
 
 
 def base_snapshots(cache_root, reused):
