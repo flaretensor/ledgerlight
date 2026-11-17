@@ -10,7 +10,7 @@ Retrieval-augmented question answering over the public SEC filings of 22 U.S. co
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 400}}}%%
-flowchart LR
+flowchart TB
     Q["Question and<br/>optional filters"] --> B["BM25<br/>top 100"]
     Q --> D["Fine-tuned BGE-small<br/>Qdrant, top 100"]
     B --> R["Rank fusion (RRF)<br/>100 candidates"]
