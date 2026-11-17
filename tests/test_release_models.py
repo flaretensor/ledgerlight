@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -133,3 +134,64 @@ def test_bundle_installs_tracked_card_and_checksums(release, tmp_path, monkeypat
     )
     assert records["README.md"] == release.digest(card)
     assert all(release.digest(destination / name) == expected for name, expected in records.items())
+
+
+@pytest.fixture
+def payload(release, tmp_path):
+    directory = tmp_path / "payload"
+    directory.mkdir()
+    selected = {
+        "encoder_path": "models/encoder/trial-2",
+        "cross_encoder_path": "models/cross_encoder/trial-3",
+        "ltr_path": "models/ltr/trial-37.cbm",
+    }
+    (directory / "provenance.json").write_text(json.dumps({"selected_paths": selected}))
+    (directory / "pipelines.json").write_text(
+        json.dumps({"configurations": {"CatBoost": selected}})
+    )
+    (directory / "README.md").write_text("synthetic")
+    names = release.bundle_requirements(directory)
+    for name in names - {"provenance.json", "pipelines.json", "README.md"}:
+        target = directory / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"synthetic")
+
+    def sums():
+        (directory / "SHA256SUMS").write_text(
+            "".join(
+                release.digest(p) + "  " + str(p.relative_to(directory)) + "\n"
+                for p in sorted(directory.rglob("*"))
+                if p.is_file() and p.name != "SHA256SUMS"
+            )
+        )
+
+    sums()
+    return directory, sums
+
+
+def test_bundle_verifies_complete_payload(release, payload):
+    directory, _ = payload
+    assert len(release.verify_bundle(directory)) == 24
+
+
+@pytest.mark.parametrize("listed", [True, False])
+def test_bundle_rejects_missing_payload_with_sorted_paths(release, payload, listed):
+    directory, sums = payload
+    missing = [
+        "models/encoder/trial-2/tokenizer.json",
+        "data/runtime/onnx/cross_encoder/2/model.onnx",
+    ]
+    for name in missing:
+        (directory / name).unlink()
+    if not listed:
+        sums()
+    with pytest.raises(ValueError) as failure:
+        release.verify_bundle(directory)
+    assert str(failure.value) == "Bundle is missing required files: " + ", ".join(sorted(missing))
+
+
+def test_bundle_rejects_corrupt_file(release, payload):
+    directory, _ = payload
+    (directory / "models/ltr/trial-37.cbm").write_bytes(b"corrupt")
+    with pytest.raises(ValueError, match="Bundle checksum or path violation"):
+        release.verify_bundle(directory)

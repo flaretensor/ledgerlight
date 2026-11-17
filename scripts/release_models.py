@@ -98,6 +98,39 @@ def build_bundle(destination):
     print(json.dumps(result, indent=2))
 
 
+def bundle_requirements(directory):
+    provenance = json.loads((directory / "provenance.json").read_text())
+    pipelines = json.loads((directory / "pipelines.json").read_text())
+    required = {"provenance.json", "pipelines.json", "README.md"}
+    configurations = [provenance["selected_paths"], *pipelines["configurations"].values()]
+    for configuration in configurations:
+        for role in ["encoder", "cross_encoder"]:
+            relative = configuration.get(role + "_path")
+            if relative is None:
+                continue
+            names = [
+                "model.safetensors",
+                "config.json",
+                "tokenizer.json",
+                "tokenizer_config.json",
+                "special_tokens_map.json",
+                "vocab.txt",
+            ]
+            if role == "encoder":
+                names += [
+                    "modules.json",
+                    "config_sentence_transformers.json",
+                    "sentence_bert_config.json",
+                    "1_Pooling/config.json",
+                ]
+            required.update(str(Path(relative) / name) for name in names)
+        if configuration.get("ltr_path"):
+            required.add(configuration["ltr_path"])
+    for role in ["encoder", "cross_encoder"]:
+        required.update(f"data/runtime/onnx/{role}/{version}/model.onnx" for version in ["1", "2"])
+    return required
+
+
 def verify_bundle(directory):
     records = {}
     for line in (directory / "SHA256SUMS").read_text().splitlines():
@@ -105,15 +138,20 @@ def verify_bundle(directory):
         if Path(name).is_absolute() or ".." in Path(name).parts:
             raise ValueError("Unsafe bundle path")
         source = (directory / name).resolve()
-        if (
-            not source.is_relative_to(directory.resolve())
-            or len(expected) != 64
-            or digest(source) != expected
-        ):
+        if not source.is_relative_to(directory.resolve()) or len(expected) != 64:
             raise ValueError("Bundle checksum or path violation: " + name)
         records[name] = expected
-    if not {"provenance.json", "pipelines.json", "README.md"} <= set(records):
-        raise ValueError("Incomplete model bundle")
+    required = {"provenance.json", "pipelines.json", "README.md"}
+    missing = {name for name in required | records.keys() if not (directory / name).is_file()}
+    if missing:
+        raise ValueError("Bundle is missing required files: " + ", ".join(sorted(missing)))
+    for name, expected in records.items():
+        if digest(directory / name) != expected:
+            raise ValueError("Bundle checksum or path violation: " + name)
+    required.update(bundle_requirements(directory))
+    missing = {name for name in required if name not in records or not (directory / name).is_file()}
+    if missing:
+        raise ValueError("Bundle is missing required files: " + ", ".join(sorted(missing)))
     return records
 
 
