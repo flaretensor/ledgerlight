@@ -13,5 +13,6 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           version: "0.13.7"
+          cache-local-path: ${{ github.workspace }}/.cache/uv
       - run: bash -c 'source scripts/env.sh && uv sync --frozen'
       - run: bash scripts/ci.sh
