@@ -13,30 +13,29 @@ Retrieval-augmented question answering over the public SEC filings of 22 U.S. co
 flowchart TB
     classDef default font-size:20px;
 
-    subgraph ROW1[" "]
+    subgraph ROW1["Retrieval"]
         direction LR
         Q["Question<br/>+ optional filters"]
         B["BM25<br/>top 100"]
         D["Fine-tuned BGE-small<br/>top 100"]
         R["RRF<br/>100 parents"]
-        C["Fine-tuned MiniLM<br/>cross-encoder"]
         Q --> B --> R
         Q --> D --> R
-        R --> C
     end
 
-    subgraph ROW2[" "]
+    subgraph ROW2["Reranking and answer"]
         direction LR
+        C["Fine-tuned MiniLM<br/>cross-encoder"]
         L["CatBoost YetiRank<br/>14 features"]
         G["Qwen3.5-2B<br/>top 5 windows"]
         V["Citation check<br/>streamed answer"]
-        L --> G --> V
+        C --> L --> G --> V
     end
 
     ROW1 --> ROW2
 
-    style ROW1 fill:none,stroke:none
-    style ROW2 fill:none,stroke:none
+    style ROW1 fill:none,stroke:#999
+    style ROW2 fill:none,stroke:#999
 ```
 
 Each step is described in [How a question is answered](#how-a-question-is-answered).
