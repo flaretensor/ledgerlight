@@ -22,7 +22,11 @@ def upload():
     for index_name, version in zip(indices, versions, strict=True):
         collection = namespace() + "-windows-encoder-" + str(version)
         vectors = np.load(path(f"indices/{index_name}/vectors.npy"))
-        if not client.collection_exists(collection):
+        exists = client.collection_exists(collection)
+        if exists and client.count(collection, exact=True).count != len(windows):
+            client.delete_collection(collection)
+            exists = False
+        if not exists:
             client.create_collection(
                 collection_name=collection,
                 vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE),
