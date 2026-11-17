@@ -39,11 +39,10 @@ HEADER_HELP = (
     "Answers come from 5,230 passages in the annual (10-K) and quarterly (10-Q) reports "
     "that 22 U.S. energy, healthcare and automotive companies filed with the U.S. "
     "Securities and Exchange Commission (SEC).\n\n"
-    "The passages come from FinRank, a public retrieval dataset. They are excerpts, not "
-    "complete reports, so some questions can't be answered here. "
-    "The dataset has no links to the original filings; each source shows the company, "
-    "report type, filing year and page instead. Text appears as stored, including leftover "
-    "markup.\n\n"
+    "The passages come from FinRank, a public retrieval dataset. They are excerpts of the "
+    "reports, so some questions can't be answered here. The dataset has no links to the "
+    "original filings, so each source shows the company, report type, filing year and "
+    "page. Text appears as stored, including leftover markup.\n\n"
     "A small local model (Qwen3.5-2B) writes each answer from the top-ranked passages. "
     "It can make mistakes, so check the sources. The Search details tab shows how the "
     "passages were found."
@@ -318,9 +317,9 @@ with ask_tab:
                 required=True,
                 format_func=lambda value: "All years" if not value else value,
                 help=(
-                    "The year the report was filed, not the year it covers. A 2024 annual "
-                    "report is usually filed in early 2025, so pick 2025 to find it. "
-                    "The dataset estimates the year for a few reports."
+                    "The year the report was filed. A 2024 annual report is usually filed in "
+                    "early 2025, so pick 2025 to find it. The dataset estimates the year for a "
+                    "few reports."
                 ),
             )
         with submit_col:
