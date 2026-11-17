@@ -30,7 +30,7 @@ flowchart TB
     subgraph ROW2[" "]
         direction LR
         G["Qwen3.5-2B<br/>top 5 windows"]
-        V["Citation check<br/>streamed answer"]
+        V["Citation check<br/>+ streamed answer"]
         G --> V
     end
 
