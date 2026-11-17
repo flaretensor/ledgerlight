@@ -20,10 +20,12 @@ def test_retrieval_failure_does_not_count_as_abstention(monkeypatch):
             pass
 
         def post(self, *args, **kwargs):
+            assert kwargs["json"]["limit"] == 3
             raise httpx.ConnectError("synthetic retrieval failure")
 
     monkeypatch.setattr(gateway, "ADMISSION", Admission())
     monkeypatch.setattr(gateway.httpx, "Client", FailedClient)
+    monkeypatch.setattr(gateway, "params", lambda: {"serving": {"top_k": 3}})
     before = gateway.ABSTENTIONS._value.get()
     response = TestClient(gateway.app).post("/ask", json={"question": "Synthetic failure"})
     assert response.status_code == 503

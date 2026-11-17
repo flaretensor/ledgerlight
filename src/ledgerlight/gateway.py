@@ -283,7 +283,7 @@ async def ask_stream(request: Request, payload: AskRequest):
                     json={
                         "question": payload.question,
                         "filters": payload.filters.model_dump(exclude_none=True),
-                        "limit": 5,
+                        "limit": params()["serving"]["top_k"],
                     },
                 )
                 response.raise_for_status()
@@ -380,7 +380,11 @@ def ask(request: AskRequest, incoming: Request):
                 clock = time.perf_counter()
                 response = client.post(
                     RETRIEVAL_URL + "/search",
-                    json={"question": request.question, "filters": filters, "limit": 5},
+                    json={
+                        "question": request.question,
+                        "filters": filters,
+                        "limit": params()["serving"]["top_k"],
+                    },
                 )
                 response.raise_for_status()
                 retrieval = response.json()

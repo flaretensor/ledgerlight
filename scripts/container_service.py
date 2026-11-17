@@ -8,7 +8,7 @@ from pathlib import Path
 
 import httpx
 
-from ledgerlight.common import database_url, digest, path, read_json
+from ledgerlight.common import database_url, digest, params, path, read_json
 
 
 def supervise(command):
@@ -142,7 +142,7 @@ def main():
             "--reasoning-format",
             "deepseek",
             "--reasoning-budget",
-            "512",
+            str(params()["serving"]["thinking_budget"]),
             "-lv",
             "4",
         ]
