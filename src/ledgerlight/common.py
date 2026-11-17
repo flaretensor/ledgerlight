@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from urllib.parse import quote
 
 import yaml
 from dotenv import load_dotenv
@@ -72,8 +73,8 @@ def digest(target):
 
 
 def database_url():
-    password = os.environ["POSTGRES_PASSWORD"]
-    user = os.environ.get("POSTGRES_USER", "ledgerlight")
+    password = quote(os.environ["POSTGRES_PASSWORD"], safe="")
+    user = quote(os.environ.get("POSTGRES_USER", "ledgerlight"), safe="")
     port = os.environ.get("POSTGRES_PORT", "5433")
     db = os.environ.get("POSTGRES_DB", "ledgerlight")
     host = os.environ.get("POSTGRES_HOST", "127.0.0.1")
