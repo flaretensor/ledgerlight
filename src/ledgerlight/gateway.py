@@ -415,7 +415,7 @@ def ask(request: AskRequest, incoming: Request):
         finish_ticket(ticket)
         OUTCOMES.labels(outcome).inc()
         REQUESTS.labels("gateway", outcome).inc()
-        if not citations:
+        if outcome == "abstained":
             ABSTENTIONS.inc()
         for name, seconds in latencies.items():
             STAGES.labels("gateway", name).observe(max(0, seconds))
