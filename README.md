@@ -10,12 +10,33 @@ Retrieval-augmented question answering over the public SEC filings of 22 U.S. co
 
 ```mermaid
 flowchart LR
-    Q["Question<br/>+ filters"]
-    R["Retrieval<br/>BM25 + BGE/Qdrant"]
-    L["Ranking<br/>RRF → MiniLM → CatBoost"]
-    A["Answer<br/>Qwen3.5-2B + citations"]
+    subgraph RET["Retrieval"]
+        direction TB
+        Q["Question<br/>optional filters"]
+        B["BM25<br/>top 100 parents"]
+        D["Fine-tuned BGE-small<br/>Qdrant · top 100 parents"]
+        Q --> B
+        Q --> D
+    end
 
-    Q --> R --> L --> A
+    subgraph RANK["Reranking"]
+        direction TB
+        R["RRF<br/>100 parent candidates"]
+        C["Fine-tuned MiniLM<br/>cross-encoder · 100 candidates"]
+        L["CatBoost YetiRank<br/>14 features"]
+        R --> C --> L
+    end
+
+    subgraph ANS["Answer"]
+        direction TB
+        G["Qwen3.5-2B<br/>top 5 windows"]
+        V["Citation check<br/>streamed answer"]
+        G --> V
+    end
+
+    B --> R
+    D --> R
+    L --> G
 ```
 
 Each step is described in [How a question is answered](#how-a-question-is-answered).
