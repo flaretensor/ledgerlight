@@ -1,7 +1,7 @@
+import argparse
 import ast
 import inspect
 import json
-import sys
 
 import numpy as np
 from catboost import CatBoostRanker
@@ -206,4 +206,6 @@ def full_audit():
 
 
 if __name__ == "__main__":
-    print(json.dumps(static_audit() if "--static" in sys.argv else full_audit(), indent=2))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--static", action="store_true")
+    print(json.dumps(static_audit() if parser.parse_args().static else full_audit(), indent=2))

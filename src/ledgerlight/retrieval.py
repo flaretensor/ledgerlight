@@ -1,6 +1,6 @@
+import argparse
 import json
 import re
-import sys
 import time
 
 import numpy as np
@@ -233,4 +233,7 @@ def cross_scores(model, question, candidates, qvector, vectors, windows, count=1
 
 
 if __name__ == "__main__":
-    {"index_bm25": lexical_index, "embed": embed}[sys.argv[1]]()
+    commands = {"index_bm25": lexical_index, "embed": embed}
+    parser = argparse.ArgumentParser()
+    parser.add_argument("action", choices=commands)
+    commands[parser.parse_args().action]()

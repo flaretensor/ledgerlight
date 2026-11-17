@@ -1,3 +1,4 @@
+import argparse
 import os
 import subprocess
 import sys
@@ -45,8 +46,10 @@ def main():
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] in {"start", "stop", "status"}:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("action", choices=["tracking", "start", "stop", "status"])
+    args, remaining = parser.parse_known_args()
+    if args.action != "tracking":
         os.execv(sys.executable, [sys.executable, str(ROOT / "scripts/site.py"), *sys.argv[1:]])
-    if len(sys.argv) != 2 or sys.argv[1] != "tracking":
-        raise SystemExit("Expected tracking, start, stop or status")
+    parser.parse_args()
     main()

@@ -1,8 +1,8 @@
+import argparse
 import os
 import re
 import signal
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -79,101 +79,108 @@ def serve_llama(command):
     return code if code >= 0 else 128 - code
 
 
-kind = sys.argv[1]
-bind = os.environ.get("LEDGERLIGHT_BIND_ADDRESS", "127.0.0.1")
-if kind == "mlflow":
-    os.environ["MLFLOW_BACKEND_STORE_URI"] = database_url()
-    args = [
-        "mlflow",
-        "server",
-        "--host",
-        bind,
-        "--port",
-        "5000",
-        "--workers",
-        "2",
-        "--serve-artifacts",
-        "--artifacts-destination",
-        str(path("mlruns/artifacts")),
-        "--allowed-hosts",
-        "127.0.0.1:5000,localhost:5000,127.0.0.1,localhost,mlflow:5000,mlflow",
-    ]
-elif kind == "llama":
-    executable = next(p for p in path(".tools/llama").rglob("llama-server") if p.is_file())
-    libs = list(Path("/opt/venv/lib/python3.12/site-packages/nvidia").glob("*/lib"))
-    libs.append(executable.parent)
-    os.environ["LD_LIBRARY_PATH"] = ":".join(map(str, libs))
-    pin = read_json("services.lock.json")["qwen"]
-    model = path("models/qwen") / pin["name"]
-    if digest(model) != pin["digest"].split(":")[-1]:
-        raise ValueError("Local Qwen checksum mismatch")
-    args = [
-        str(executable),
-        "--model",
-        str(model),
-        "--alias",
-        "ledgerlight-qwen",
-        "--host",
-        bind,
-        "--port",
-        "8091",
-        "--ctx-size",
-        "8192",
-        "--cache-ram",
-        "2048",
-        "--parallel",
-        "1",
-        "--n-gpu-layers",
-        os.environ.get("LEDGERLIGHT_GPU_LAYERS", "99").replace("all", "99"),
-        "--threads",
-        os.environ.get("LEDGERLIGHT_LLM_THREADS", "8"),
-        "--batch-size",
-        "256",
-        "--ubatch-size",
-        "128",
-        "--flash-attn",
-        "on",
-        "--metrics",
-        "--reasoning",
-        "on",
-        "--reasoning-format",
-        "deepseek",
-        "--reasoning-budget",
-        "512",
-        "-lv",
-        "4",
-    ]
-elif kind == "retrieval":
-    deadline = time.monotonic() + 180
-    while True:
-        try:
-            response = httpx.get(
-                os.environ.get("LEDGERLIGHT_QDRANT_URL", "http://127.0.0.1:6333") + "/readyz",
-                timeout=2,
-            )
-            response.raise_for_status()
-            break
-        except httpx.HTTPError:
-            if time.monotonic() >= deadline:
-                raise RuntimeError("Qdrant did not become ready") from None
-            time.sleep(1)
-    from ledgerlight.vector_store import upload
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("kind", choices=["mlflow", "llama", "retrieval"])
+    kind = parser.parse_args().kind
+    bind = os.environ.get("LEDGERLIGHT_BIND_ADDRESS", "127.0.0.1")
+    if kind == "mlflow":
+        os.environ["MLFLOW_BACKEND_STORE_URI"] = database_url()
+        args = [
+            "mlflow",
+            "server",
+            "--host",
+            bind,
+            "--port",
+            "5000",
+            "--workers",
+            "2",
+            "--serve-artifacts",
+            "--artifacts-destination",
+            str(path("mlruns/artifacts")),
+            "--allowed-hosts",
+            "127.0.0.1:5000,localhost:5000,127.0.0.1,localhost,mlflow:5000,mlflow",
+        ]
+    elif kind == "llama":
+        executable = next(p for p in path(".tools/llama").rglob("llama-server") if p.is_file())
+        libs = list(Path("/opt/venv/lib/python3.12/site-packages/nvidia").glob("*/lib"))
+        libs.append(executable.parent)
+        os.environ["LD_LIBRARY_PATH"] = ":".join(map(str, libs))
+        pin = read_json("services.lock.json")["qwen"]
+        model = path("models/qwen") / pin["name"]
+        if digest(model) != pin["digest"].split(":")[-1]:
+            raise ValueError("Local Qwen checksum mismatch")
+        args = [
+            str(executable),
+            "--model",
+            str(model),
+            "--alias",
+            "ledgerlight-qwen",
+            "--host",
+            bind,
+            "--port",
+            "8091",
+            "--ctx-size",
+            "8192",
+            "--cache-ram",
+            "2048",
+            "--parallel",
+            "1",
+            "--n-gpu-layers",
+            os.environ.get("LEDGERLIGHT_GPU_LAYERS", "99").replace("all", "99"),
+            "--threads",
+            os.environ.get("LEDGERLIGHT_LLM_THREADS", "8"),
+            "--batch-size",
+            "256",
+            "--ubatch-size",
+            "128",
+            "--flash-attn",
+            "on",
+            "--metrics",
+            "--reasoning",
+            "on",
+            "--reasoning-format",
+            "deepseek",
+            "--reasoning-budget",
+            "512",
+            "-lv",
+            "4",
+        ]
+    elif kind == "retrieval":
+        deadline = time.monotonic() + 180
+        while True:
+            try:
+                response = httpx.get(
+                    os.environ.get("LEDGERLIGHT_QDRANT_URL", "http://127.0.0.1:6333") + "/readyz",
+                    timeout=2,
+                )
+                response.raise_for_status()
+                break
+            except httpx.HTTPError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("Qdrant did not become ready") from None
+                time.sleep(1)
+        from ledgerlight.vector_store import upload
 
-    upload()
-    args = [
-        "python",
-        "-m",
-        "uvicorn",
-        "ledgerlight.retrieval_api:app",
-        "--host",
-        bind,
-        "--port",
-        "8001",
-    ]
-else:
-    raise SystemExit("Unknown container service")
-if kind == "mlflow":
-    raise SystemExit(supervise(args))
-if kind == "llama":
-    raise SystemExit(serve_llama(args))
-os.execvpe(args[0], args, os.environ)
+        upload()
+        args = [
+            "python",
+            "-m",
+            "uvicorn",
+            "ledgerlight.retrieval_api:app",
+            "--host",
+            bind,
+            "--port",
+            "8001",
+        ]
+    else:
+        raise SystemExit("Unknown container service")
+    if kind == "mlflow":
+        raise SystemExit(supervise(args))
+    if kind == "llama":
+        raise SystemExit(serve_llama(args))
+    os.execvpe(args[0], args, os.environ)
+
+
+if __name__ == "__main__":
+    main()

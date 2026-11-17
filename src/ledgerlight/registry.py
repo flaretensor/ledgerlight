@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import shutil
@@ -271,4 +272,5 @@ def register_all():
 
 
 if __name__ == "__main__":
+    argparse.ArgumentParser().parse_args()
     register_all()

@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import json
 import re
@@ -169,4 +170,5 @@ def main():
 
 
 if __name__ == "__main__":
+    argparse.ArgumentParser().parse_args()
     main()

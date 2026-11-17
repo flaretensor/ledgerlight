@@ -4,9 +4,9 @@ from ledgerlight.cli import app
 
 
 def test_cli_version():
-    result = CliRunner().invoke(app, ["--help"])
+    result = CliRunner().invoke(app, ["version"])
     assert result.exit_code == 0
-    assert "version" in result.output
+    assert result.output.strip() == "0.1.0"
 
 
 def test_retrieval_metric_denominators():

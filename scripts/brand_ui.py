@@ -1,3 +1,4 @@
+import argparse
 import re
 import shutil
 from pathlib import Path
@@ -19,4 +20,5 @@ def main():
 
 
 if __name__ == "__main__":
+    argparse.ArgumentParser().parse_args()
     main()

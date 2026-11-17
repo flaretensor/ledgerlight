@@ -72,3 +72,7 @@ def ask(question: str, ticker: str | None = None, year: str | None = None, form:
     )
     response.raise_for_status()
     typer.echo(json.dumps(response.json(), indent=2))
+
+
+if __name__ == "__main__":
+    app()

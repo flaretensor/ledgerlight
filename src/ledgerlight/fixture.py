@@ -1,8 +1,8 @@
+import argparse
 import json
 import os
 import shutil
 import subprocess
-import sys
 import uuid
 
 import numpy as np
@@ -164,6 +164,12 @@ def run_ci():
 
 
 if __name__ == "__main__":
-    {"ingest": ingest_fixture, "train": fit_fixture, "evaluate": evaluate_fixture, "ci": run_ci}[
-        sys.argv[1]
-    ]()
+    commands = {
+        "ingest": ingest_fixture,
+        "train": fit_fixture,
+        "evaluate": evaluate_fixture,
+        "ci": run_ci,
+    }
+    parser = argparse.ArgumentParser()
+    parser.add_argument("action", choices=commands)
+    commands[parser.parse_args().action]()

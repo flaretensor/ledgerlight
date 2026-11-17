@@ -1,3 +1,4 @@
+import argparse
 import json
 import re
 import time
@@ -159,4 +160,5 @@ def baseline():
 
 
 if __name__ == "__main__":
+    argparse.ArgumentParser().parse_args()
     baseline()

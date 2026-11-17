@@ -1,5 +1,5 @@
+import argparse
 import json
-import sys
 import urllib.request
 
 from ledgerlight.common import digest, params, path, write_json
@@ -157,4 +157,7 @@ def validate():
 
 
 if __name__ == "__main__":
-    {"ingest": ingest, "validate": validate}[sys.argv[1]]()
+    commands = {"ingest": ingest, "validate": validate}
+    parser = argparse.ArgumentParser()
+    parser.add_argument("action", choices=commands)
+    commands[parser.parse_args().action]()

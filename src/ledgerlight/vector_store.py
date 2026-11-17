@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 
@@ -72,4 +73,5 @@ def upload():
 
 
 if __name__ == "__main__":
+    argparse.ArgumentParser().parse_args()
     upload()

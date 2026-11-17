@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import subprocess
@@ -145,4 +146,5 @@ def run():
 
 
 if __name__ == "__main__":
+    argparse.ArgumentParser().parse_args()
     run()

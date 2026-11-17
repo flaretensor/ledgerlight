@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import os
 import signal
@@ -5,23 +6,23 @@ import socket
 
 from forward_ui import handle
 
-address = socket.gethostbyname("ui-ingress")
-args = [
-    "python",
-    "-m",
-    "streamlit",
-    "run",
-    "src/ledgerlight/ui.py",
-    "--server.address",
-    address,
-    "--server.port",
-    "8501",
-    "--browser.gatherUsageStats",
-    "false",
-]
-
 
 async def main():
+    address = socket.gethostbyname("ui-ingress")
+    args = [
+        "python",
+        "-m",
+        "streamlit",
+        "run",
+        "src/ledgerlight/ui.py",
+        "--server.address",
+        address,
+        "--server.port",
+        "8501",
+        "--browser.gatherUsageStats",
+        "false",
+    ]
+
     process = await asyncio.create_subprocess_exec(*args, env=os.environ)
     loop = asyncio.get_running_loop()
     for signum in [signal.SIGINT, signal.SIGTERM]:
@@ -36,4 +37,6 @@ async def main():
             await process.wait()
 
 
-raise SystemExit(asyncio.run(main()))
+if __name__ == "__main__":
+    argparse.ArgumentParser().parse_args()
+    raise SystemExit(asyncio.run(main()))

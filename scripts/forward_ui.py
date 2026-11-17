@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import os
 import socket
@@ -40,4 +41,5 @@ async def main():
 
 
 if __name__ == "__main__":
+    argparse.ArgumentParser().parse_args()
     asyncio.run(main())

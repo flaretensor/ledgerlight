@@ -1,3 +1,4 @@
+import argparse
 import gc
 import json
 import os
@@ -775,4 +776,5 @@ def train():
 
 
 if __name__ == "__main__":
+    argparse.ArgumentParser().parse_args()
     train()
