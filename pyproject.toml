@@ -3,6 +3,7 @@ name = "ledgerlight"
 version = "0.1.0"
 description = "Cited answers to questions about SEC filings, running locally"
 license = "Apache-2.0"
+readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
  "typer>=0.16,<1",
@@ -41,6 +42,9 @@ dependencies = [
  "openvino>=2025.3,<2027",
  "tritonclient[http]>=2.63,<3",
 ]
+[project.urls]
+Repository = "https://github.com/flaretensor/ledgerlight"
+"Hugging Face" = "https://huggingface.co/flaretensor/ledgerlight-models"
 [project.scripts]
 ledgerlight = "ledgerlight.cli:app"
 [build-system]
