@@ -70,6 +70,12 @@ def project_pids():
 
 
 def gpu_processes(pids):
+    if ACTIVE.is_file() and not uses_gpu(json.loads(ACTIVE.read_text())):
+        if not any(
+            c["State"]["Running"] and c["HostConfig"].get("DeviceRequests")
+            for c in inspect_containers()
+        ):
+            return []
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"],
@@ -125,10 +131,13 @@ def vram_requirement(config, settings):
     return None, True
 
 
-def configure(args):
-    settings = read_json("config/site.json")
+def uses_gpu(config):
+    return not (config["search"] == "openvino" and str(config["gpu_layers"]) == "0")
+
+
+def resolve_settings(settings, args, environment):
     config = {key: settings[key] for key in ["search", "triton", "gpu_layers", "llm_threads"]}
-    config["llm_threads"] = int(os.environ.get("LEDGERLIGHT_LLM_THREADS", config["llm_threads"]))
+    config["llm_threads"] = int(environment.get("LEDGERLIGHT_LLM_THREADS", config["llm_threads"]))
     for key in ["search", "triton", "gpu_layers"]:
         if getattr(args, key) is not None:
             config[key] = getattr(args, key)
@@ -140,41 +149,18 @@ def configure(args):
     if config["triton"] and config["search"] == "torch":
         raise ValueError("Triton requires --search ort or --search openvino")
     config.update(gpu_layers=layers, public=args.public)
-    token_stat = public_token() if args.public else None
-    required = [
-        "models/encoder/trial-2/model.safetensors",
-        "models/cross_encoder/trial-3/model.safetensors",
-        "models/ltr/trial-37.cbm",
-        "models/qwen/" + read_json("services.lock.json")["qwen"]["name"],
-        "data/processed/corpus.jsonl",
-        "indices/base/windows.jsonl",
-        "indices/trained/vectors.npy",
-        "data/registry/versions.json",
-        "data/postgres/PG_VERSION",
-    ]
-    if config["search"] != "torch":
-        required += [
-            f"data/runtime/onnx/{role}/2/model.onnx" for role in ["encoder", "cross_encoder"]
-        ]
-    missing = [name for name in required if not (ROOT / name).is_file()]
-    if missing:
-        raise ValueError("Missing runtime artifacts: " + ", ".join(missing))
-    peak, estimated = vram_requirement(config, settings)
-    config.update(peak_vram_mib=peak, vram_estimate=estimated)
-    cpu_only = config["search"] == "openvino" and layers == "0"
-    free = 0
-    if not cpu_only:
-        free = int(
-            subprocess.check_output(
-                ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
-                text=True,
-                timeout=300,
-            ).splitlines()[0]
-        )
-    if not cpu_only and not args.force and (peak is None or free < peak + 150):
+    return config
+
+
+def check_vram(config, peak, free, force):
+    if uses_gpu(config) and not force and (peak is None or free < peak + 150):
         raise ValueError(
             f"VRAM fit unverified or insufficient: free={free} MiB, peak={peak}; use --force to skip"
         )
+
+
+def render_overrides(config, settings, token_stat):
+    layers = config["gpu_layers"]
     services = {}
     if token_stat is not None:
         services["tunnel"] = {"user": f"{token_stat.st_uid}:{token_stat.st_gid}"}
@@ -232,8 +218,46 @@ def configure(args):
         services["prometheus"] = {
             "volumes": ["./config/prometheus.triton.yaml:/etc/prometheus/prometheus.yml:ro"]
         }
+    return {"services": services}
+
+
+def configure(args):
+    settings = read_json("config/site.json")
+    config = resolve_settings(settings, args, os.environ)
+    token_stat = public_token() if args.public else None
+    required = [
+        "models/encoder/trial-2/model.safetensors",
+        "models/cross_encoder/trial-3/model.safetensors",
+        "models/ltr/trial-37.cbm",
+        "models/qwen/" + read_json("services.lock.json")["qwen"]["name"],
+        "data/processed/corpus.jsonl",
+        "indices/base/windows.jsonl",
+        "indices/trained/vectors.npy",
+        "data/registry/versions.json",
+        "data/postgres/PG_VERSION",
+    ]
+    if config["search"] != "torch":
+        required += [
+            f"data/runtime/onnx/{role}/2/model.onnx" for role in ["encoder", "cross_encoder"]
+        ]
+    missing = [name for name in required if not (ROOT / name).is_file()]
+    if missing:
+        raise ValueError("Missing runtime artifacts: " + ", ".join(missing))
+    peak, estimated = vram_requirement(config, settings)
+    config.update(peak_vram_mib=peak, vram_estimate=estimated)
+    free = 0
+    if uses_gpu(config):
+        free = int(
+            subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+                text=True,
+                timeout=300,
+            ).splitlines()[0]
+        )
+    check_vram(config, peak, free, args.force)
+    override = render_overrides(config, settings, token_stat)
     OVERRIDE.parent.mkdir(parents=True, exist_ok=True)
-    OVERRIDE.write_text(yaml.safe_dump({"services": services}, sort_keys=False))
+    OVERRIDE.write_text(yaml.safe_dump(override, sort_keys=False))
     ACTIVE.write_text(json.dumps(config, indent=2) + "\n")
     return config
 

@@ -92,3 +92,44 @@ def test_missing_nvidia_smi_is_zero_processes_for_stop_and_status(
     text = capsys.readouterr().out
     assert text.count("PASS:") == 4
     assert '"stack_gpu": []' in text
+
+
+@pytest.mark.parametrize(
+    "layers,triton,search", [("-1", False, "ort"), ("bad", False, "ort"), ("all", True, "torch")]
+)
+def test_settings_validation_is_pure(lifecycle, layers, triton, search):
+    import copy
+    from argparse import Namespace
+
+    settings = {"search": search, "triton": triton, "gpu_layers": layers, "llm_threads": 4}
+    original = copy.deepcopy(settings)
+    args = Namespace(search=None, triton=None, gpu_layers=None, cpu=False, public=False)
+    with pytest.raises(ValueError):
+        lifecycle.resolve_settings(settings, args, {})
+    assert settings == original
+
+
+def test_vram_policy_is_pure_and_cpu_does_not_need_capacity(lifecycle):
+    gpu = {"search": "ort", "gpu_layers": "all"}
+    with pytest.raises(ValueError, match="VRAM fit unverified or insufficient"):
+        lifecycle.check_vram(gpu, 1000, 1149, False)
+    lifecycle.check_vram(gpu, 1000, 1150, False)
+    lifecycle.check_vram(gpu, None, 0, True)
+    lifecycle.check_vram({"search": "openvino", "gpu_layers": "0"}, None, 0, False)
+
+
+def test_cpu_stop_status_skip_nvidia_smi(lifecycle, monkeypatch, tmp_path, capsys):
+    import json
+
+    active = tmp_path / "active.json"
+    active.write_text(json.dumps({"search": "openvino", "gpu_layers": "0"}))
+    monkeypatch.setattr(lifecycle, "ACTIVE", active)
+    monkeypatch.setattr(lifecycle, "ROOT", tmp_path)
+    monkeypatch.setattr(lifecycle, "inspect_containers", lambda: [])
+    monkeypatch.setattr(lifecycle, "container_ids", lambda *args: [])
+    monkeypatch.setattr(lifecycle, "project_pids", lambda: {123})
+    monkeypatch.setattr(lifecycle, "PORTS", [])
+    monkeypatch.setattr(lifecycle.subprocess, "run", lambda *args, **kwargs: pytest.fail())
+    lifecycle.stop()
+    lifecycle.status()
+    assert capsys.readouterr().out.count("PASS:") == 4
