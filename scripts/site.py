@@ -70,12 +70,15 @@ def project_pids():
 
 
 def gpu_processes(pids):
-    result = subprocess.run(
-        ["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"],
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except FileNotFoundError:
+        return []
     rows = []
     for line in result.stdout.splitlines():
         fields = [s.strip() for s in line.split(",")]
@@ -158,14 +161,16 @@ def configure(args):
         raise ValueError("Missing runtime artifacts: " + ", ".join(missing))
     peak, estimated = vram_requirement(config, settings)
     config.update(peak_vram_mib=peak, vram_estimate=estimated)
-    free = int(
-        subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
-            text=True,
-            timeout=300,
-        ).splitlines()[0]
-    )
     cpu_only = config["search"] == "openvino" and layers == "0"
+    free = 0
+    if not cpu_only:
+        free = int(
+            subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+                text=True,
+                timeout=300,
+            ).splitlines()[0]
+        )
     if not cpu_only and not args.force and (peak is None or free < peak + 150):
         raise ValueError(
             f"VRAM fit unverified or insufficient: free={free} MiB, peak={peak}; use --force to skip"
@@ -267,7 +272,11 @@ def start(args):
     ACTIVE.write_text(json.dumps(config, indent=2) + "\n")
     print(json.dumps({"url": "http://127.0.0.1:8501", "configuration": config}, indent=2))
     if str(config["gpu_layers"]) == "0" and config["search"] == "openvino" and not config["triton"]:
-        processes = gpu_processes(project_pids())
+        processes = [
+            c["Id"]
+            for c in inspect_containers()
+            if c["State"]["Running"] and c["HostConfig"].get("DeviceRequests")
+        ]
         if processes:
             raise RuntimeError("CPU configuration still owns GPU memory")
         print("PASS: stack GPU memory is 0 MiB")
