@@ -178,13 +178,7 @@ def passage_body(passage, clipped=False):
     st.text(passage["text"])
 
 
-st.set_page_config(
-    page_title="Ledgerlight",
-    page_icon=Path(__file__).parent / "assets" / "favicon.png",
-    layout="centered",
-)
-st.html(
-    """<style>
+STYLES = """<style>
     [data-testid="stMainBlockContainer"]{max-width:768px;padding:3rem 24px 2rem}
     [data-testid="stCaptionContainer"],[data-testid="stCaptionContainer"] p,
     [role="tooltip"], [role="tooltip"] p,
@@ -225,12 +219,24 @@ st.html(
     .st-key-candidate_heading [data-testid="stColumn"]:first-child{flex:1;min-width:0}
     .st-key-candidate_heading [data-testid="stColumn"]:last-child{flex:0 0 136px;min-width:0;width:136px}
     </style>"""
-)
-st.title("Ledgerlight")
-st.caption(
-    "Ask about the financial reports of 22 U.S. companies. Answers cite the passages they draw on.",
-    help=HEADER_HELP,
-)
+
+
+def render_styles():
+    st.html(STYLES)
+
+
+def render_header():
+    st.set_page_config(
+        page_title="Ledgerlight",
+        page_icon=Path(__file__).parent / "assets" / "favicon.png",
+        layout="centered",
+    )
+    render_styles()
+    st.title("Ledgerlight")
+    st.caption(
+        "Ask about the financial reports of 22 U.S. companies. Answers cite the passages they draw on.",
+        help=HEADER_HELP,
+    )
 
 
 @st.cache_data(ttl=10)
@@ -240,33 +246,23 @@ def metadata():
     return response.json()
 
 
-try:
-    health = metadata()
-except httpx.HTTPError:
-    st.info("The app is still starting. Refresh this page in a minute.")
-    st.stop()
-
-ask_tab, rank_tab = st.tabs(["Ask", "Search details"])
-with ask_tab:
-    example_file = Path(
-        os.environ.get("LEDGERLIGHT_EXAMPLES_FILE", Path(__file__).parent / "assets/examples.json")
+def select_example(value):
+    st.session_state.update(
+        question_input=value,
+        ticker_input="",
+        form_input="",
+        year_input="",
+        submit_example=True,
+        asked_once=True,
     )
-    examples = json.loads(example_file.read_text()) if example_file.is_file() else []
 
-    def select_example(value):
-        st.session_state.update(
-            question_input=value,
-            ticker_input="",
-            form_input="",
-            year_input="",
-            submit_example=True,
-            asked_once=True,
-        )
 
-    def begin_question():
-        if st.session_state.get("question_input", "").strip():
-            st.session_state["asked_once"] = True
+def begin_question():
+    if st.session_state.get("question_input", "").strip():
+        st.session_state["asked_once"] = True
 
+
+def question_form(health):
     with st.form("ask_form", border=False):
         question = st.text_area(
             "Question",
@@ -324,6 +320,10 @@ with ask_tab:
             )
         with submit_col:
             submitted = st.form_submit_button("Ask", type="primary", on_click=begin_question)
+    return question, ticker, form, year, submitted
+
+
+def render_examples(examples):
     if examples and not st.session_state.get("asked_once"):
         with st.container(key="examples"):
             st.caption("Try an example:")
@@ -334,7 +334,9 @@ with ask_tab:
                     on_click=select_example,
                     args=(example["question"],),
                 )
-    answer_area = st.container(key="response")
+
+
+def render_coverage():
     with st.expander("Which companies are covered?", key="company_coverage"):
         st.markdown(
             "Energy: Cheniere Energy, Chevron, ConocoPhillips, Coterra Energy, Devon Energy, Energy Transfer, Enterprise Products, EOG Resources, ExxonMobil, Kinder Morgan, Marathon Petroleum, Williams Companies\n\n"
@@ -342,6 +344,124 @@ with ask_tab:
             "Automotive: Ford, General Motors, Tesla"
         )
 
+
+def run_question(question, filters):
+    st.session_state["asked_once"] = True
+    phase = st.empty()
+    with st.container(key="answer_preview"):
+        progress = st.empty()
+    phase_status(phase, "Searching the reports…")
+    text, final = "", None
+    try:
+        from streamlit.runtime import get_instance
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+
+        context = get_script_run_ctx()
+        incoming = st.context.headers
+        address = (
+            incoming.get("CF-Connecting-IP")
+            or incoming.get("X-Forwarded-For", "").split(",")[0].strip()
+            or st.context.ip_address
+        )
+        headers = {"CF-Connecting-IP": address} if address else {}
+        state = httpx.get(GATEWAY + "/capacity", timeout=5).json()
+        if state.get("active"):
+            phase_status(phase, "Waiting for the previous question to finish…")
+
+        def connected():
+            return not st.runtime.exists() or get_instance().is_active_session(context.session_id)
+
+        for kind, payload in ui_transport.events(
+            GATEWAY + "/ask/stream",
+            {"question": question, "filters": filters},
+            headers,
+            connected,
+        ):
+            if kind == "admitted" or kind == "queued" and "seconds" in payload:
+                phase_status(phase, "Searching the reports…")
+            elif kind == "queued":
+                phase_status(phase, "Waiting for the previous question to finish…")
+            elif kind in {"sources", "thinking"}:
+                phase_status(phase, "Reading the sources…")
+            elif kind == "delta":
+                phase.empty()
+                text += payload["text"]
+                progress.markdown(text, unsafe_allow_html=False)
+            elif kind == "reset":
+                text = ""
+                progress.empty()
+                phase_status(phase, "Reading the sources…")
+            elif kind == "final":
+                final = payload
+            elif kind == "error":
+                raise httpx.HTTPError("Stream unavailable")
+        if final is None:
+            raise httpx.HTTPError("Stream ended without a final response")
+        st.session_state["result"] = final
+        st.session_state["question"] = question
+        st.session_state["filters"] = filters.copy()
+        st.session_state["previous_result"] = False
+    except httpx.HTTPError as exc:
+        st.session_state["previous_result"] = True
+        code = None
+        if isinstance(exc, httpx.HTTPStatusError):
+            try:
+                code = exc.response.json().get("detail", {}).get("code")
+            except (ValueError, AttributeError):
+                pass
+        messages = {
+            "busy": "Another question is being answered right now. This demo runs on a single laptop, so please try again in a few seconds.",
+            "rate": "You're asking faster than this demo can answer. Wait a minute and try again.",
+            "too_long": "That question is too long. Keep it under 500 characters.",
+        }
+        st.error(messages.get(code, "Something went wrong. Try again in a moment."))
+    finally:
+        phase.empty()
+        progress.empty()
+
+
+def render_answer(result):
+    if st.session_state.get("previous_result", False):
+        st.caption(f"Previous question: {st.session_state['question']}")
+    if result["abstained"]:
+        st.info(
+            "No answer found in these reports. Try rephrasing the question or removing filters."
+        )
+    else:
+        with st.container(key="answer_text"):
+            st.markdown(
+                linked_answer(result["answer"], result["citations"]),
+                unsafe_allow_html=False,
+            )
+    seconds = result["latencies"]["e2e"]
+    with st.container(key="answer_stats"):
+        if result["abstained"]:
+            st.caption(f"{seconds:.1f} s")
+        else:
+            count = len(result["citations"])
+            st.caption(f"{count} {'source' if count == 1 else 'sources'} · {seconds:.1f} s")
+    for citation in result["citations"]:
+        number = int(citation["number"])
+        with st.expander(
+            f":primary-background[**{number}**] " + source_label(citation["sources"], bold=True)
+        ):
+            st.html(
+                f'<span id="source-{number}"></span>' + (SOURCE_NAVIGATION if number == 1 else ""),
+                unsafe_allow_javascript=number == 1,
+            )
+            passage_body(citation, result.get("generation", {}).get("context_clipped", False))
+
+
+def render_ask(health):
+    example_file = Path(
+        os.environ.get("LEDGERLIGHT_EXAMPLES_FILE", Path(__file__).parent / "assets/examples.json")
+    )
+    examples = json.loads(example_file.read_text()) if example_file.is_file() else []
+
+    question, ticker, form, year, submitted = question_form(health)
+    render_examples(examples)
+    answer_area = st.container(key="response")
+    render_coverage()
     with answer_area:
         submitted = submitted or st.session_state.pop("submit_example", False)
         filters = {}
@@ -355,117 +475,118 @@ with ask_tab:
             st.session_state["previous_result"] = True
             st.warning("Enter a question first.")
         elif submitted:
-            st.session_state["asked_once"] = True
-            phase = st.empty()
-            with st.container(key="answer_preview"):
-                progress = st.empty()
-            phase_status(phase, "Searching the reports…")
-            text, final = "", None
-            try:
-                from streamlit.runtime import get_instance
-                from streamlit.runtime.scriptrunner import get_script_run_ctx
-
-                context = get_script_run_ctx()
-                incoming = st.context.headers
-                address = (
-                    incoming.get("CF-Connecting-IP")
-                    or incoming.get("X-Forwarded-For", "").split(",")[0].strip()
-                    or st.context.ip_address
-                )
-                headers = {"CF-Connecting-IP": address} if address else {}
-                state = httpx.get(GATEWAY + "/capacity", timeout=5).json()
-                if state.get("active"):
-                    phase_status(phase, "Waiting for the previous question to finish…")
-
-                def connected():
-                    return not st.runtime.exists() or get_instance().is_active_session(
-                        context.session_id
-                    )
-
-                for kind, payload in ui_transport.events(
-                    GATEWAY + "/ask/stream",
-                    {"question": question, "filters": filters},
-                    headers,
-                    connected,
-                ):
-                    if kind == "admitted" or kind == "queued" and "seconds" in payload:
-                        phase_status(phase, "Searching the reports…")
-                    elif kind == "queued":
-                        phase_status(phase, "Waiting for the previous question to finish…")
-                    elif kind in {"sources", "thinking"}:
-                        phase_status(phase, "Reading the sources…")
-                    elif kind == "delta":
-                        phase.empty()
-                        text += payload["text"]
-                        progress.markdown(text, unsafe_allow_html=False)
-                    elif kind == "reset":
-                        text = ""
-                        progress.empty()
-                        phase_status(phase, "Reading the sources…")
-                    elif kind == "final":
-                        final = payload
-                    elif kind == "error":
-                        raise httpx.HTTPError("Stream unavailable")
-                if final is None:
-                    raise httpx.HTTPError("Stream ended without a final response")
-                st.session_state["result"] = final
-                st.session_state["question"] = question
-                st.session_state["filters"] = filters.copy()
-                st.session_state["previous_result"] = False
-            except httpx.HTTPError as exc:
-                st.session_state["previous_result"] = True
-                code = None
-                if isinstance(exc, httpx.HTTPStatusError):
-                    try:
-                        code = exc.response.json().get("detail", {}).get("code")
-                    except (ValueError, AttributeError):
-                        pass
-                messages = {
-                    "busy": "Another question is being answered right now. This demo runs on a single laptop, so please try again in a few seconds.",
-                    "rate": "You're asking faster than this demo can answer. Wait a minute and try again.",
-                    "too_long": "That question is too long. Keep it under 500 characters.",
-                }
-                st.error(messages.get(code, "Something went wrong. Try again in a moment."))
-            finally:
-                phase.empty()
-                progress.empty()
+            run_question(question, filters)
         result = st.session_state.get("result")
         if result:
-            if st.session_state.get("previous_result", False):
-                st.caption(f"Previous question: {st.session_state['question']}")
-            if result["abstained"]:
-                st.info(
-                    "No answer found in these reports. Try rephrasing the question or removing filters."
-                )
-            else:
-                with st.container(key="answer_text"):
-                    st.markdown(
-                        linked_answer(result["answer"], result["citations"]),
-                        unsafe_allow_html=False,
-                    )
-            seconds = result["latencies"]["e2e"]
-            with st.container(key="answer_stats"):
-                if result["abstained"]:
-                    st.caption(f"{seconds:.1f} s")
-                else:
-                    count = len(result["citations"])
-                    st.caption(f"{count} {'source' if count == 1 else 'sources'} · {seconds:.1f} s")
-            for citation in result["citations"]:
-                number = int(citation["number"])
-                with st.expander(
-                    f":primary-background[**{number}**] "
-                    + source_label(citation["sources"], bold=True)
-                ):
-                    st.html(
-                        f'<span id="source-{number}"></span>'
-                        + (SOURCE_NAVIGATION if number == 1 else ""),
-                        unsafe_allow_javascript=number == 1,
-                    )
-                    passage_body(
-                        citation, result.get("generation", {}).get("context_clipped", False)
-                    )
+            render_answer(result)
 
-with rank_tab:
+
+def candidate_frame(result, ranking):
+    candidates = pd.DataFrame(ranking["trace"])
+    if "ltr_rank" in candidates:
+        candidates = candidates.sort_values("ltr_rank", kind="stable")
+    if "passage_id" not in candidates:
+        candidates["passage_id"] = pd.Series(dtype=str)
+    evidence = {item["passage_id"] for item in ranking.get("results", [])}
+    candidates["sent_to_model"] = candidates["passage_id"].isin(evidence)
+    cited = {item["passage_id"] for item in result["citations"]}
+    candidates["cited"] = candidates["passage_id"].isin(cited)
+    for key in ["sent_to_model", "cited"]:
+        candidates[key] = candidates[key].map({True: "✓", False: ""})
+    columns = [key for key, _, _ in CANDIDATE_COLUMNS]
+    candidates = candidates.reindex(columns=columns)
+    sent_count = len(ranking.get("results", []))
+    return candidates, columns, sent_count
+
+
+def render_context(result, ranking, sent_count):
+    st.subheader(
+        "LLM context",
+        help=(
+            f"The top {sent_count} passages by final rank. Passages are split into "
+            "overlapping windows of up to 448 tokens, and only the window closest to "
+            "the question (by embedding similarity) goes to the LLM."
+        ),
+    )
+    for rank, passage in enumerate(ranking.get("results", []), 1):
+        if passage.get("text"):
+            label = (
+                f"**{rank}.** {source_label(passage['sources'], bold=True)} · "
+                f"{passage['passage_id']}"
+            )
+            with st.expander(label):
+                passage_body(passage, result.get("generation", {}).get("context_clipped", False))
+
+
+def render_candidates(candidates, columns, sent_count):
+    with st.container(key="candidate_heading"):
+        heading_col, scores_col = st.columns([3, 1], vertical_alignment="center")
+        with heading_col:
+            st.subheader(
+                "Candidates",
+                help=f"The {len(candidates)} candidates left after rank fusion, in final "
+                f"rank order. The top {sent_count} went to the LLM.",
+            )
+        with scores_col:
+            show_scores = st.toggle("Show scores", value=False)
+    visible_columns = columns if show_scores else columns[:8]
+    column_config = {}
+    for key, label, help_text in CANDIDATE_COLUMNS:
+        if key == "passage_id":
+            column = st.column_config.TextColumn(label, help=help_text)
+        elif key in {"sent_to_model", "cited"}:
+            column = st.column_config.TextColumn(label, help=help_text, alignment="center")
+        else:
+            column = st.column_config.NumberColumn(
+                label,
+                help=help_text,
+                format="%d" if key.endswith("_rank") else "%.3f",
+                alignment="center",
+            )
+        column_config[key] = column
+    st.dataframe(
+        candidates[visible_columns].style.set_properties(
+            subset=["sent_to_model", "cited"], color="#1f1f1f", **{"text-align": "center"}
+        ),
+        hide_index=True,
+        width="stretch",
+        height=400,
+        column_order=visible_columns,
+        column_config=column_config,
+    )
+
+
+def render_timing(result, ranking):
+    st.subheader(
+        "Timing",
+        help=(
+            "Wall-clock time of each stage for this request. Retrieval total covers "
+            "the five stages above it; Total adds LLM generation."
+        ),
+    )
+    timings = ranking["latencies"]
+    steps = [
+        ("BM25", timings.get("bm25")),
+        ("Query embedding", timings.get("embed")),
+        ("Dense retrieval", timings.get("qdrant")),
+        ("Cross-encoder", timings.get("ce")),
+        ("CatBoost ranker", timings.get("ltr")),
+        ("Retrieval total", timings.get("e2e")),
+        ("LLM generation", result["latencies"].get("generation")),
+        ("Total", result["latencies"].get("e2e")),
+    ]
+    st.dataframe(
+        pd.DataFrame(
+            [{"Step": name, "Time": duration(value)} for name, value in steps if value is not None],
+            columns=["Step", "Time"],
+        ),
+        hide_index=True,
+        width="content",
+        height="content",
+    )
+
+
+def render_search_details():
     result = st.session_state.get("result")
     if result:
         st.caption(
@@ -479,108 +600,28 @@ with rank_tab:
             ),
         )
         ranking = result["ranking"]
-        candidates = pd.DataFrame(ranking["trace"])
-        if "ltr_rank" in candidates:
-            candidates = candidates.sort_values("ltr_rank", kind="stable")
-        if "passage_id" not in candidates:
-            candidates["passage_id"] = pd.Series(dtype=str)
-        evidence = {item["passage_id"] for item in ranking.get("results", [])}
-        candidates["sent_to_model"] = candidates["passage_id"].isin(evidence)
-        cited = {item["passage_id"] for item in result["citations"]}
-        candidates["cited"] = candidates["passage_id"].isin(cited)
-        for key in ["sent_to_model", "cited"]:
-            candidates[key] = candidates[key].map({True: "✓", False: ""})
-        columns = [key for key, _, _ in CANDIDATE_COLUMNS]
-        candidates = candidates.reindex(columns=columns)
-        sent_count = len(ranking.get("results", []))
+        candidates, columns, sent_count = candidate_frame(result, ranking)
         with st.container(key="pipeline_line"):
             st.write(
                 f"BM25 + dense retrieval → RRF: {len(candidates)} candidates → cross-encoder → "
                 f"CatBoost ranker → top {sent_count} → LLM"
             )
-        st.subheader(
-            "LLM context",
-            help=(
-                f"The top {sent_count} passages by final rank. Passages are split into "
-                "overlapping windows of up to 448 tokens, and only the window closest to "
-                "the question (by embedding similarity) goes to the LLM."
-            ),
-        )
-        for rank, passage in enumerate(ranking.get("results", []), 1):
-            if passage.get("text"):
-                label = (
-                    f"**{rank}.** {source_label(passage['sources'], bold=True)} · "
-                    f"{passage['passage_id']}"
-                )
-                with st.expander(label):
-                    passage_body(
-                        passage, result.get("generation", {}).get("context_clipped", False)
-                    )
-        with st.container(key="candidate_heading"):
-            heading_col, scores_col = st.columns([3, 1], vertical_alignment="center")
-            with heading_col:
-                st.subheader(
-                    "Candidates",
-                    help=f"The {len(candidates)} candidates left after rank fusion, in final "
-                    f"rank order. The top {sent_count} went to the LLM.",
-                )
-            with scores_col:
-                show_scores = st.toggle("Show scores", value=False)
-        visible_columns = columns if show_scores else columns[:8]
-        column_config = {}
-        for key, label, help_text in CANDIDATE_COLUMNS:
-            if key == "passage_id":
-                column = st.column_config.TextColumn(label, help=help_text)
-            elif key in {"sent_to_model", "cited"}:
-                column = st.column_config.TextColumn(label, help=help_text, alignment="center")
-            else:
-                column = st.column_config.NumberColumn(
-                    label,
-                    help=help_text,
-                    format="%d" if key.endswith("_rank") else "%.3f",
-                    alignment="center",
-                )
-            column_config[key] = column
-        st.dataframe(
-            candidates[visible_columns].style.set_properties(
-                subset=["sent_to_model", "cited"], color="#1f1f1f", **{"text-align": "center"}
-            ),
-            hide_index=True,
-            width="stretch",
-            height=400,
-            column_order=visible_columns,
-            column_config=column_config,
-        )
-        st.subheader(
-            "Timing",
-            help=(
-                "Wall-clock time of each stage for this request. Retrieval total covers "
-                "the five stages above it; Total adds LLM generation."
-            ),
-        )
-        timings = ranking["latencies"]
-        steps = [
-            ("BM25", timings.get("bm25")),
-            ("Query embedding", timings.get("embed")),
-            ("Dense retrieval", timings.get("qdrant")),
-            ("Cross-encoder", timings.get("ce")),
-            ("CatBoost ranker", timings.get("ltr")),
-            ("Retrieval total", timings.get("e2e")),
-            ("LLM generation", result["latencies"].get("generation")),
-            ("Total", result["latencies"].get("e2e")),
-        ]
-        st.dataframe(
-            pd.DataFrame(
-                [
-                    {"Step": name, "Time": duration(value)}
-                    for name, value in steps
-                    if value is not None
-                ],
-                columns=["Step", "Time"],
-            ),
-            hide_index=True,
-            width="content",
-            height="content",
-        )
+        render_context(result, ranking, sent_count)
+        render_candidates(candidates, columns, sent_count)
+        render_timing(result, ranking)
     else:
         st.write("Ask a question first. This tab shows how its answer was found.")
+
+
+render_header()
+try:
+    health = metadata()
+except httpx.HTTPError:
+    st.info("The app is still starting. Refresh this page in a minute.")
+    st.stop()
+
+ask_tab, rank_tab = st.tabs(["Ask", "Search details"])
+with ask_tab:
+    render_ask(health)
+with rank_tab:
+    render_search_details()
