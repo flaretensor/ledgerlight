@@ -61,7 +61,7 @@ def test_cpu_configuration_does_not_query_gpu(lifecycle, monkeypatch, tmp_path):
         raise FileNotFoundError()
 
     monkeypatch.setattr(lifecycle.subprocess, "check_output", missing)
-    monkeypatch.setattr(lifecycle.Path, "is_file", lambda self: True)
+    monkeypatch.setattr(Path, "is_file", lambda self: True)
     monkeypatch.setattr(lifecycle, "ACTIVE", tmp_path / "active.json")
     monkeypatch.setattr(lifecycle, "OVERRIDE", tmp_path / "active.compose.yaml")
     args = Namespace(search=None, triton=None, gpu_layers=None, cpu=True, public=False, force=False)
