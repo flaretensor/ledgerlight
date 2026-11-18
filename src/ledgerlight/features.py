@@ -32,8 +32,8 @@ def company_aliases():
 
 def query_years(question):
     years = set(re.findall(r"(?<!\d)(?:19|20)\d{2}(?!\d)", question))
-    years.update(re.findall(r"(?i)\b(?:FY|Q[1-4])\s*[-/]?\s*((?:19|20)\d{2})\b", question))
-    years.update("20" + year for year in re.findall(r"(?i)\bFY\s*[-/]?\s*(\d{2})\b", question))
+    years.update(re.findall(r"(?i)\b(?:FY|Q[1-4])\s*(?:[-/]\s*)?((?:19|20)\d{2})\b", question))
+    years.update("20" + year for year in re.findall(r"(?i)\bFY\s*(?:[-/]\s*)?(\d{2})\b", question))
     return years
 
 

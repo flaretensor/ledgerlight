@@ -6,7 +6,6 @@ import stat
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 import httpx
 import yaml
@@ -337,24 +336,19 @@ def stop():
             probe.settimeout(0.2)
             if probe.connect_ex(("127.0.0.1", port)) == 0:
                 listening.append(port)
-    tunnels = []
-    for directory in Path("/proc").glob("[0-9]*"):
-        try:
-            command = (directory / "cmdline").read_bytes()
-            executable = Path(os.fsdecode(command.split(b"\0")[0])).name
-            if executable == "cloudflared" and (
-                str(ROOT).encode() in command or b"ledgerlight.flaretensor.uk" in command
-            ):
-                tunnels.append(int(directory.name))
-        except (OSError, PermissionError):
-            pass
+    tunnel_containers = [
+        c
+        for c in inspect_containers()
+        if c["Config"]["Labels"].get("com.docker.compose.service") == "tunnel"
+    ]
+    tunnels = [
+        c["State"].get("Pid", 0)
+        for c in tunnel_containers
+        if c["State"].get("Pid", 0) > 0
+    ]
     result = {
         "no_running_project_containers": not container_ids(True),
-        "no_project_tunnel": not tunnels
-        and not any(
-            c["Config"]["Labels"].get("com.docker.compose.service") == "tunnel"
-            for c in inspect_containers()
-        ),
+        "no_project_tunnel": not tunnel_containers,
         "no_stack_port_listening": not listening,
         "no_stack_gpu_process": not gpu_processes(pids),
         "listening_ports": listening,
