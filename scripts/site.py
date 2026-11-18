@@ -341,11 +341,7 @@ def stop():
         for c in inspect_containers()
         if c["Config"]["Labels"].get("com.docker.compose.service") == "tunnel"
     ]
-    tunnels = [
-        c["State"].get("Pid", 0)
-        for c in tunnel_containers
-        if c["State"].get("Pid", 0) > 0
-    ]
+    tunnels = [c["State"].get("Pid", 0) for c in tunnel_containers if c["State"].get("Pid", 0) > 0]
     result = {
         "no_running_project_containers": not container_ids(True),
         "no_project_tunnel": not tunnel_containers,
