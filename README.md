@@ -4,7 +4,7 @@ Retrieval-augmented question answering over the public SEC filings of 22 U.S. co
 
 **Result:** on held-out TEST questions, the full ranking pipeline reaches nDCG@10 of 38.58%, against 22.79% for BM25 (+15.79 points, 95% CI 10.27 to 21.44; see [How to read the results](#how-to-read-the-results)).
 
-**Demo:** <https://ledgerlight.flaretensor.uk> (online while the stack is running)
+**Demo:** <https://ledgerlight.flaretensor.uk> (not always online)
 
 ## Pipeline
 
