@@ -52,7 +52,7 @@ Each step is described in [How a question is answered](#how-a-question-is-answer
 
 ## Data
 
-The passages come from [FinRank](https://github.com/datanxt/FinRank/tree/916dc27e77b90e294ea1b3a2cc5b0abcf07392d1) ([paper](https://arxiv.org/abs/2608.07400)): 5,230 curated excerpts from the 10-K and 10-Q filings of 22 energy, healthcare and automotive companies. Each passage carries one or more source records with ticker, form type, filing year and page.
+The passages come from [FinRank](https://github.com/datanxt/FinRank/tree/916dc27e77b90e294ea1b3a2cc5b0abcf07392d1) ([paper](https://arxiv.org/abs/2608.07400)): 5,230 curated passages from the 10-K and 10-Q filings of 22 energy, healthcare and automotive companies. Each passage carries one or more source records with ticker, form type, filing year and page.
 
 FinRank also has 1,185 questions written by trained annotators, with passage-level relevance labels. Ledgerlight uses the dataset's own random split: 948 TRAIN, 118 DEV and 119 TEST questions.
 
@@ -60,7 +60,7 @@ FinRank also has 1,185 questions written by trained annotators, with passage-lev
 
 The pipeline works with two units.
 
-- **Passage.** One of the 5,230 FinRank excerpts. Relevance labels, rankings and the sources shown in the interface all refer to passages.
+- **Passage.** A span of text taken from a filing; one of the 5,230 FinRank passages. Relevance labels, rankings and the sources shown in the interface all refer to passages.
 - **Window.** A piece of a passage, at most 448 tokens long. The dense encoder and the cross-encoder read windows.
 
 Passages longer than 448 tokens are cut into overlapping windows with a step of 320 tokens; a shorter passage forms a single window. 3,246 of the 5,230 passages are longer than the encoder's 512-token limit. The cutting yields 12,604 windows in total. Window boundaries follow character offsets in the original text, so figures like `$31.9 billion` reach the models exactly as written. The 448-token size leaves room for the question in the cross-encoder's 512-token input.

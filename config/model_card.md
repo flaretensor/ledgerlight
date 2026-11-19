@@ -12,7 +12,7 @@ tags:
 
 # Ledgerlight models
 
-Retrieval models behind [Ledgerlight](https://github.com/flaretensor/ledgerlight), retrieval-augmented question answering over SEC filing excerpts from [FinRank](https://github.com/datanxt/FinRank).
+Retrieval models behind [Ledgerlight](https://github.com/flaretensor/ledgerlight), retrieval-augmented question answering over passages from SEC filings in [FinRank](https://github.com/datanxt/FinRank).
 
 `BM25 + BGE-small → reciprocal rank fusion → MiniLM cross-encoder → CatBoost ranker → Qwen3.5-2B`
 

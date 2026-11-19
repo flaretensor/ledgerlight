@@ -34,14 +34,14 @@ COMPANIES = {
     "TSLA": "Tesla",
     "WMB": "Williams Companies",
 }
-REPORT_TYPES = {"10-K": "Annual report (10-K)", "10-Q": "Quarterly report (10-Q)"}
+FORM_TYPES = {"10-K": "10-K (annual)", "10-Q": "10-Q (quarterly)"}
 HEADER_HELP = (
-    "Answers come from 5,230 passages in the annual (10-K) and quarterly (10-Q) reports "
+    "Answers come from 5,230 passages in the annual (10-K) and quarterly (10-Q) filings "
     "that 22 U.S. energy, healthcare and automotive companies filed with the U.S. "
     "Securities and Exchange Commission (SEC).\n\n"
-    "The passages come from FinRank, a public retrieval dataset. They are excerpts of the "
-    "reports, so some questions can't be answered here. Each source shows the company, "
-    "report type, filing year and page. Text appears as stored, including leftover markup.\n\n"
+    "The passages come from FinRank, a public retrieval dataset. They are parts of the "
+    "filings, so some questions can't be answered here. Each source shows the company, "
+    "form type, filing year and page. Text appears as stored, including leftover markup.\n\n"
     "A small local model (Qwen3.5-2B) writes each answer from the top-ranked passages. "
     "The Search details tab shows how the passages were found."
 )
@@ -138,7 +138,7 @@ def source_label(sources, bold=False):
         company = company_name(source["ticker"])
         labels.append(
             f"{'**' + company + '**' if bold else company} · "
-            f"{REPORT_TYPES.get(source['form'], source['form'])} · "
+            f"{FORM_TYPES.get(source['form'], source['form'])} · "
             f"filed {source['year']} · p. {page}"
         )
     return " / ".join(labels)
@@ -170,7 +170,7 @@ def phase_status(target, text):
 def passage_body(passage, clipped=False):
     windows = passage.get("windows")
     if windows and not clipped:
-        st.markdown("**Excerpt sent to the LLM**")
+        st.markdown("**Window sent to the LLM**")
         st.text("\n\n".join(windows))
         st.markdown("**Full passage**")
     st.text(passage["text"])
@@ -232,7 +232,7 @@ def render_header():
     render_styles()
     st.title("Ledgerlight")
     st.caption(
-        "Ask about the financial reports of 22 U.S. companies. Answers cite the passages they draw on.",
+        "Ask about the SEC filings of 22 U.S. companies. Answers cite the passages they draw on.",
         help=HEADER_HELP,
     )
 
@@ -268,7 +268,7 @@ def question_form(health):
             height=80,
             max_chars=500,
             key="question_input",
-            placeholder="Ask a question about these companies' reports (English only)",
+            placeholder="Ask a question about these companies' filings (English only)",
         )
         company_col, form_col, year_col, submit_col = st.columns(
             [2.4, 2.2, 1.5, 0.7], vertical_alignment="bottom", gap="small"
@@ -287,20 +287,20 @@ def question_form(health):
                 key="ticker_input",
                 required=True,
                 help=(
-                    "Search one company's reports. Helpful when your question doesn't name "
+                    "Search one company's filings. Helpful when your question doesn't name "
                     "the company. The code in parentheses is its stock ticker."
                 ),
             )
         with form_col:
             form = st.selectbox(
-                "Report type",
-                ["", *REPORT_TYPES],
+                "Form type",
+                ["", *FORM_TYPES],
                 key="form_input",
                 required=True,
-                format_func=lambda value: "All types" if not value else REPORT_TYPES[value],
+                format_func=lambda value: "All types" if not value else FORM_TYPES[value],
                 help=(
                     "Companies file a 10-K once a year and a shorter 10-Q for each of the "
-                    "other three quarters. The annual report has the most detail."
+                    "other three quarters. The 10-K has the most detail."
                 ),
             )
         with year_col:
@@ -311,9 +311,9 @@ def question_form(health):
                 required=True,
                 format_func=lambda value: "All years" if not value else value,
                 help=(
-                    "The year the report was filed. A 2024 annual report is usually filed in "
+                    "The year the filing was submitted. A 2024 10-K is usually filed in "
                     "early 2025, so pick 2025 to find it. The dataset estimates the year for a "
-                    "few reports."
+                    "few filings."
                 ),
             )
         with submit_col:
@@ -348,7 +348,7 @@ def run_question(question, filters):
     phase = st.empty()
     with st.container(key="answer_preview"):
         progress = st.empty()
-    phase_status(phase, "Searching the reports…")
+    phase_status(phase, "Searching the filings…")
     text, final = "", None
     try:
         from streamlit.runtime import get_instance
@@ -376,7 +376,7 @@ def run_question(question, filters):
             connected,
         ):
             if kind == "admitted" or kind == "queued" and "seconds" in payload:
-                phase_status(phase, "Searching the reports…")
+                phase_status(phase, "Searching the filings…")
             elif kind == "queued":
                 phase_status(phase, "Waiting for the previous question to finish…")
             elif kind in {"sources", "thinking"}:
@@ -423,7 +423,7 @@ def render_answer(result):
         st.caption(f"Previous question: {st.session_state['question']}")
     if result["abstained"]:
         st.info(
-            "No answer found in these reports. Try rephrasing the question or removing filters."
+            "No answer found in these filings. Try rephrasing the question or removing filters."
         )
     else:
         with st.container(key="answer_text"):

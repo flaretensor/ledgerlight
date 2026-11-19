@@ -70,7 +70,7 @@ def main():
         result["filter_widgets"] = {}
         for label, expected in [
             ("Company", "All companies"),
-            ("Report type", "All types"),
+            ("Form type", "All types"),
             ("Filing year", "All years"),
         ]:
             widget = page.get_by_role("combobox", name=label, exact=True)

@@ -103,7 +103,7 @@ def submit(app, question):
 def test_ui_copy_sources_and_detail_tables(ui):
     app, state = ui
     assert not app.exception
-    assert [x.label for x in app.selectbox] == ["Company", "Report type", "Filing year"]
+    assert [x.label for x in app.selectbox] == ["Company", "Form type", "Filing year"]
     assert app.selectbox[0].options == [
         "All companies",
         "AbbVie (ABBV)",
@@ -114,13 +114,13 @@ def test_ui_copy_sources_and_detail_tables(ui):
     assert app.text_area[0].label == "Question"
     assert len(app.caption[0].proto.help.split("\n\n")) == 3
     assert app.caption[0].proto.help.split("\n\n")[1] == (
-        "The passages come from FinRank, a public retrieval dataset. They are excerpts of the "
-        "reports, so some questions can't be answered here. Each source shows the company, "
-        "report type, filing year and page. Text appears as stored, including leftover markup."
+        "The passages come from FinRank, a public retrieval dataset. They are parts of the "
+        "filings, so some questions can't be answered here. Each source shows the company, "
+        "form type, filing year and page. Text appears as stored, including leftover markup."
     )
     assert app.selectbox[2].proto.help == (
-        "The year the report was filed. A 2024 annual report is usually filed in early 2025, "
-        "so pick 2025 to find it. The dataset estimates the year for a few reports."
+        "The year the filing was submitted. A 2024 10-K is usually filed in early 2025, "
+        "so pick 2025 to find it. The dataset estimates the year for a few filings."
     )
     assert [t.label for t in app.tabs] == ["Ask", "Search details"]
     assert not app.sidebar.selectbox
@@ -138,13 +138,13 @@ def test_ui_copy_sources_and_detail_tables(ui):
     assert "1 source · 9.7 s" in captions
     assert "How the answer was found." in captions
     assert not any(x.startswith(("Question:", "Previous question:")) for x in captions)
-    label = "[1] General Motors · Annual report (10-K) · filed 2025 · p. 4–5"
+    label = "[1] General Motors · 10-K (annual) · filed 2025 · p. 4–5"
     assert app.expander[0].label == (
-        ":primary-background[**1**] **General Motors** · Annual report (10-K) · filed 2025 · p. 4–5"
+        ":primary-background[**1**] **General Motors** · 10-K (annual) · filed 2025 · p. 4–5"
     )
     assert (
         app.expander[2].label
-        == "**1.** **General Motors** · Annual report (10-K) · filed 2025 · p. 4–5 · p0"
+        == "**1.** **General Motors** · 10-K (annual) · filed 2025 · p. 4–5 · p0"
     )
     assert app.markdown[0].value == f'Revenue rose.\u00a0[1](#source-1 "{label}")'
     assert not app.markdown[0].proto.allow_html
@@ -212,7 +212,7 @@ def test_ui_copy_sources_and_detail_tables(ui):
         "Synthetic evidence.",
         "Synthetic evidence. Full passage tail.",
     ]
-    assert [x.value for x in app.markdown].count("**Excerpt sent to the LLM**") == 2
+    assert [x.value for x in app.markdown].count("**Window sent to the LLM**") == 2
     app.toggle[0].set_value(True).run()
     assert len(app.dataframe[0].value.columns) == 13
     assert len(state["requests"]) == 1
@@ -245,7 +245,7 @@ def test_abstention_has_one_message_and_startup_failure_has_exact_copy(ui, monke
     state["result"].update(answer="not found in sources", abstained=True, citations=[])
     submit(app, "Unanswered synthetic question")
     assert [x.value for x in app.info] == [
-        "No answer found in these reports. Try rephrasing the question or removing filters."
+        "No answer found in these filings. Try rephrasing the question or removing filters."
     ]
     assert "9.7 s" in [x.value for x in app.caption]
     st.cache_data.clear()
@@ -270,7 +270,7 @@ def test_passage_falls_back_when_exact_window_is_unavailable(ui, clipped, missin
     submit(app, "Synthetic question")
     assert not app.exception
     assert [x.value for x in app.text] == ["Synthetic evidence. Full passage tail."] * 2
-    assert not any("Excerpt sent to the LLM" in x.value for x in app.markdown)
+    assert not any("Window sent to the LLM" in x.value for x in app.markdown)
 
 
 def test_citation_spacing_preserves_unknown_citations(ui):
